@@ -1,12 +1,5 @@
 [
     {
-        "no": 1000,
-        "title": "ㅁㅁㅁㅁ",
-        "name": "관리자",
-        "viewcnt": 0,
-        "content": "ㅁㅁㅁㅁㅁ"
-    },
-    {
         "no": 1741,
         "title": "[13][RAG] Hybrid Search 서비스, Multyquery, Rag Fusion, Streamlit 사용",
         "name": "관리자",
