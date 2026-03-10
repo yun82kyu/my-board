@@ -44,30 +44,27 @@ if "view_mode" not in st.session_state:
 if "current_cat" not in st.session_state:
     st.session_state.current_cat = categories[0] if categories else "기본분류"
 
-# --- 4. 좌측 사이드바 내비게이션 ---
+# --- 4. 좌측 사이드바 ---
 with st.sidebar:
-    st.title("🚀 Navigation")
-    st.subheader("📁 카테고리 목록")
-    
-    # 카테고리 이동 버튼 생성
+    st.title("🚀 Nav")
     for idx, cat in enumerate(categories):
-        is_active = (st.session_state.current_cat == cat and st.session_state.view_mode == "list")
-        if st.button(cat, key=f"nav_btn_{idx}", use_container_width=True, 
-                     type="primary" if is_active else "secondary"):
+        # 키값에 'sidebar'를 명시하여 메인 화면 버튼들과 절대 안 겹치게 함
+        if st.button(cat, key=f"sidebar_nav_{cat}_{idx}", use_container_width=True):
             st.session_state.current_cat = cat
             st.session_state.view_mode = "list"
-            st.query_params.clear() # 상세페이지 보고 있었다면 초기화
             st.rerun()
             
     st.divider()
-    
-    # [관리 페이지 이동 버튼]
-    if st.button("⚙️ 대분류 관리 센터", use_container_width=True, 
-                 type="primary" if st.session_state.view_mode == "manage" else "secondary"):
+    if st.button("⚙️ 관리 센터", key="sidebar_manage_btn", use_container_width=True):
         st.session_state.view_mode = "manage"
         st.rerun()
 
-# --- 5. 메인 화면 로직 (모드별 분기) ---
+# --- 5. 화면 분기 ---
+if st.session_state.view_mode == "manage":
+    # 관리 함수 호출
+    show_category_manager(categories, cat_sha, all_data, save_json)
+    # 🌟 이 아래 코드는 절대 읽지 않음 (중요)
+    st.stop()
 
 # [A] 대분류 관리 모드
 if st.session_state.view_mode == "manage":
