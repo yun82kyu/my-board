@@ -104,19 +104,41 @@ if st.session_state.write_mode:
         st.rerun()
 
 elif st.session_state.view_post:
-    # --- 게시글 보기 ---
-    post = next((p for p in st.session_state.posts if p["no"] == st.session_state.view_post), None)
+    # 1. 선택한 게시글 찾기
+    post = next(
+        (p for p in st.session_state.posts if p["no"] == st.session_state.view_post),
+        None
+    )
+
     if post:
         st.title(post["title"])
         st.caption(f"📅 {post.get('date')} | 📂 {post.get('category')}")
         st.divider()
 
-        # HTML 출력 (unsafe_allow_html=True를 사용하여 저장된 이미지와 텍스트 출력)
-        st.markdown(post["content"], unsafe_allow_html=True)
+        # [수정 핵심] 변수에 담긴 HTML 내용을 직접 출력합니다.
+        # st_quill을 여기서 다시 호출하면 안 됩니다! 
+        # 이미 저장된 post["content"] 문자열을 HTML로 렌더링합니다.
+        
+        content_html = post.get("content", "")
+        
+        # 이미지 크기 자동 조절 및 스타일 적용
+        display_html = f"""
+        <div style="border: 1px solid #ddd; padding: 20px; border-radius: 10px; background-color: white;">
+            <style>
+                img {{ max-width: 100%; height: auto; display: block; margin: 10px 0; border-radius: 5px; }}
+                p {{ font-size: 16px; line-height: 1.6; }}
+            </style>
+            {content_html}
+        </div>
+        """
+        
+        # 2. DeltaGenerator 에러를 방지하기 위해 markdown의 unsafe_allow_html 사용
+        st.markdown(display_html, unsafe_allow_html=True)
 
         st.divider()
         if st.button("🔙 목록으로"):
-            st.session_state.view_post = None; st.rerun()
+            st.session_state.view_post = None
+            st.rerun()
 
 else:
     # --- 게시글 목록 (기존 유지) ---
