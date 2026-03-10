@@ -256,15 +256,19 @@ else:
 
             st.divider()
 
-            st.markdown(post["content"])
+            content = post["content"]
 
-            if post.get("images"):
-
-                st.divider()
-
-                for img in post["images"]:
-
-                    st.image(img)
+            images = post.get("images", [])
+            
+            parts = content.split("[img]")
+            
+            for i, part in enumerate(parts):
+            
+                st.markdown(part)
+            
+                if i < len(images):
+            
+                    st.image(images[i])
 
             st.divider()
 
