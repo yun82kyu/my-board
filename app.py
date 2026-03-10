@@ -2,7 +2,7 @@ import streamlit as st
 import json
 from github import Github
 
-# --- 1. 보안 설정 및 연결 ---
+# --- 1. 설정 및 데이터 처리 ---
 try:
     GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
     REPO_NAME = st.secrets["REPO_NAME"]
@@ -13,122 +13,110 @@ except:
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-# --- 2. 데이터 처리 함수들 ---
 @st.cache_data(show_spinner=False)
-def load_github_json(file_name):
-    file_content = repo.get_contents(file_name)
-    return json.loads(file_content.decoded_content.decode("utf-8")), file_content.sha
+def load_json(file_name):
+    content = repo.get_contents(file_name)
+    return json.loads(content.decoded_content.decode("utf-8")), content.sha
 
-def save_github_json(file_name, data, sha, message="Update"):
-    json_string = json.dumps(data, indent=4, ensure_ascii=False)
-    repo.update_file(file_name, message, json_string, sha)
+def save_json(file_name, data, sha):
+    repo.update_file(file_name, "Update", json.dumps(data, indent=4, ensure_ascii=False), sha)
     st.cache_data.clear()
 
-# --- 3. UI 및 환경 설정 ---
-st.set_page_config(page_title="Admin Panel", layout="wide")
-
-# 카테고리 로드
-categories, cat_sha = load_github_json("categories.json")
-
-# 주소창 파라미터 제어 (뒤로가기용)
+# --- 2. 환경 설정 ---
+st.set_page_config(page_title="Admin", layout="wide")
 params = st.query_params
 current_view = params.get("view", "list")
 selected_no = params.get("no", None)
 
-# --- 4. 사이드바 (대분류 선택 및 편집) ---
-st.sidebar.title("📁 대분류 관리")
-category = st.sidebar.selectbox("카테고리 선택", categories)
+# 카테고리 로드
+categories, cat_sha = load_json("categories.json")
 
-st.sidebar.divider()
-with st.sidebar.expander("🛠️ 명칭 편집/추가"):
-    new_cat_name = st.text_input("새 카테고리 이름")
-    if st.button("추가하기"):
-        if new_cat_name and new_cat_name not in categories:
-            categories.append(new_cat_name)
-            save_github_json("categories.json", categories, cat_sha, "Add Category")
-            st.rerun()
-    
-    st.divider()
-    del_cat = st.selectbox("삭제할 카테고리", categories)
-    if st.button("선택 삭제", help="주의: 카테고리 명칭만 삭제됩니다."):
-        if len(categories) > 1:
-            categories.remove(del_cat)
-            save_github_json("categories.json", categories, cat_sha, "Delete Category")
-            st.rerun()
+# 현재 선택된 카테고리 관리 (세션)
+if "current_cat" not in st.session_state:
+    st.session_state.current_cat = categories[0]
 
-# --- 5. 상세 페이지 화면 ---
-if current_view == "detail" and selected_no:
-    data, sha = load_github_json("data.json")
-    post = next((item for item in data if str(item['no']) == str(selected_no)), None)
-    
-    if post:
-        if st.button("⬅️ 목록으로 돌아가기"):
-            st.query_params.clear()
-            st.rerun()
-        st.title(f"📖 {post['title']}")
-        st.info(post['content'])
-        st.caption(f"No: {post['no']} | 카테고리: {category}")
-    else:
-        st.error("글을 찾을 수 없습니다.")
-
-# --- 6. 글쓰기 화면 ---
-elif current_view == "write":
-    st.title(f"📝 {category} - 새 글 작성")
-    data, sha = load_github_json("data.json")
-    
-    with st.form("write_form"):
-        title = st.text_input("제목")
-        content = st.text_area("내용", height=300)
-        if st.form_submit_button("저장하기"):
-            new_no = max([int(i['no']) for i in data]) + 1 if data else 1
-            # 글 저장 시 현재 선택된 카테고리 정보도 함께 저장
-            data.insert(0, {"no": new_no, "title": title, "name": "관리자", "content": content, "viewcnt": 0, "category": category})
-            save_github_json("data.json", data, sha, "Add Post")
-            st.query_params.clear()
-            st.rerun()
-    if st.button("취소"):
+# --- 3. 상단 대분류 메뉴 (버튼 나열 방식) ---
+st.write("### 📁 대분류")
+cat_cols = st.columns(len(categories) + 1)
+for i, cat_name in enumerate(categories):
+    # 현재 선택된 카테고리는 강조 효과
+    btn_type = "primary" if st.session_state.current_cat == cat_name else "secondary"
+    if cat_cols[i].button(cat_name, key=f"cat_{i}", type=btn_type, use_container_width=True):
+        st.session_state.current_cat = cat_name
         st.query_params.clear()
         st.rerun()
 
-# --- 7. 메인 목록 화면 ---
-else:
-    st.title(f"👤 {category}")
-    data, sha = load_github_json("data.json")
+# 카테고리 추가 기능 (작게)
+with cat_cols[-1].popover("➕"):
+    new_cat = st.text_input("새 분류명")
+    if st.button("추가"):
+        categories.append(new_cat)
+        save_json("categories.json", categories, cat_sha)
+        st.rerun()
 
-    # 필터링: 선택된 카테고리의 글만 보여주기 (옵션)
-    # 만약 모든 글을 다 보여주려면 아래 두 줄을 주석 처리하세요.
-    filtered_data = [item for item in data if item.get('category') == category]
-    
-    col_search, col_write = st.columns([3, 1])
-    with col_search:
-        search_all = st.checkbox("모든 카테고리 글 보기", value=False)
-        display_data = data if search_all else filtered_data
-        search_query = st.text_input("🔍 검색", placeholder="제목 키워드 입력...")
+st.divider()
+
+# --- 4. 상세 페이지 ---
+if current_view == "detail" and selected_no:
+    data, sha = load_json("data.json")
+    post = next((i for i in data if str(i['no']) == str(selected_no)), None)
+    if post:
+        st.button("⬅️ 목록", on_click=lambda: st.query_params.clear())
+        st.subheader(post['title'])
+        st.info(post['content'])
+    st.stop()
+
+# --- 5. 글쓰기 폼 (작게 숨김) ---
+if current_view == "write":
+    data, sha = load_json("data.json")
+    with st.form("write_form"):
+        st.caption(f"📍 {st.session_state.current_cat}에 글 쓰기")
+        t = st.text_input("제목")
+        c = st.text_area("내용")
+        if st.form_submit_button("저장"):
+            new_no = max([int(i['no']) for i in data]) + 1 if data else 1
+            data.insert(0, {"no": new_no, "title": t, "name": "관리자", "content": c, "viewcnt": 0, "category": st.session_state.current_cat})
+            save_json("data.json", data, sha)
+            st.query_params.clear()
+            st.rerun()
+    if st.button("취소"): st.query_params.clear(); st.rerun()
+    st.stop()
+
+# --- 6. 메인 목록 (한 줄 레이아웃) ---
+data, sha = load_json("data.json")
+# 선택된 카테고리 글만 필터링
+display_data = [i for i in data if i.get('category') == st.session_state.current_cat]
+
+# 검색과 버튼을 한 줄로
+search_col, btn_col = st.columns([5, 1])
+search_query = search_col.text_input("", placeholder="🔍 현재 분류 내 제목 검색 (결과는 하단 표에 자동 반영)", label_visibility="collapsed")
+if btn_col.button("📝 행 추가", use_container_width=True):
+    st.query_params.update(view="write")
+    st.rerun()
+
+st.write("") # 간격 조절
+
+# 테이블 헤더 (폭 조절)
+# [No(0.5), Title(6), Name(1.5), Del(1)] 비중으로 좁게 설정
+h1, h2, h3, h4 = st.columns([0.6, 6, 1.5, 0.8])
+h1.write("**No**")
+h2.write("**Title**")
+h3.write("**Name**")
+h4.write("**Del**")
+st.markdown("<hr style='margin:0; padding:0; border-top: 1px solid #ddd;'>", unsafe_allow_html=True)
+
+# 목록 출력
+for item in display_data:
+    if search_query and search_query.lower() not in item['title'].lower():
+        continue
         
-    with col_write:
-        if st.button("📝 신규 행 추가", use_container_width=True):
-            st.query_params.update(view="write")
-            st.rerun()
-
-    st.divider()
-    # 테이블 헤더
-    cols_h = st.columns([1, 6, 2, 1])
-    for i, h in enumerate(["No", "Title", "Name", "Del"]):
-        cols_h[i].write(f"**{h}**")
-    st.divider()
-
-    for idx, item in enumerate(display_data):
-        if search_query and search_query.lower() not in item['title'].lower():
-            continue
-            
-        cols = st.columns([1, 6, 2, 1])
-        cols[0].write(item['no'])
-        if cols[1].button(item['title'], key=f"btn_{item['no']}", use_container_width=True):
-            st.query_params.update(view="detail", no=item['no'])
-            st.rerun()
-        cols[2].write(item.get('name', '관리자'))
-        if cols[3].button("🗑️", key=f"del_{item['no']}"):
-            # 원본 data에서 삭제
-            data = [i for i in data if i['no'] != item['no']]
-            save_github_json("data.json", data, sha, "Delete Post")
-            st.rerun()
+    c1, c2, c3, c4 = st.columns([0.6, 6, 1.5, 0.8])
+    c1.write(item['no'])
+    if c2.button(item['title'], key=f"t_{item['no']}", use_container_width=True):
+        st.query_params.update(view="detail", no=item['no'])
+        st.rerun()
+    c3.write(item.get('name', '관리자'))
+    if c4.button("🗑️", key=f"d_{item['no']}"):
+        data = [i for i in data if i['no'] != item['no']]
+        save_json("data.json", data, sha)
+        st.rerun()
