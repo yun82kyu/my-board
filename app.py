@@ -71,11 +71,11 @@ with st.sidebar:
 
 # [A] 대분류 관리 모드
 if st.session_state.view_mode == "manage":
-    # 분리된 파일의 함수 호출 (save_json 함수 자체를 인자로 전달)
-    show_category_manager(categories, cat_sha, all_data, save_json)
+    # 컨테이너로 영역을 격리하여 렌더링 안정성 확보
+    with st.container():
+        show_category_manager(categories, cat_sha, all_data, save_json)
     
-    # 🌟 중요: 관리 모드일 때는 아래의 코드가 실행되지 않게 물리적으로 멈춤
-    # 이 줄이 있어야 하단의 게시판 버튼들과 'Key'가 충돌하지 않습니다.
+    # 실행 중단 (하단 목록 버튼들과의 충돌 방지)
     st.stop()
 
 # [B] 상세 보기 모드 (URL 파라미터 기반)
