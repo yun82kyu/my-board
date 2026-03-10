@@ -2,46 +2,164 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>LLM Study Board</title>
+    <title>LLM JSON Manager</title>
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
-        header { background-color: #333; color: white; padding: 10px 20px; display: flex; align-items: center; }
-        .container { background-color: white; width: 95%; margin: 20px auto; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h2 { border-bottom: 2px solid #333; padding-bottom: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { background-color: #f8f8f8; border-top: 1px solid #ddd; border-bottom: 2px solid #333; padding: 10px; text-align: left; font-size: 14px; }
-        td { border-bottom: 1px solid #eee; padding: 12px 10px; font-size: 14px; }
-        .title-link { color: #0066cc; text-decoration: none; }
-        .title-link:hover { text-decoration: underline; }
-        tr:hover { background-color: #fafafa; }
+        body { font-family: 'Malgun Gothic', sans-serif; margin: 0; background-color: #f4f4f4; color: #333; }
+        header { background-color: #222; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .container { background-color: white; width: 95%; max-width: 1200px; margin: 20px auto; padding: 20px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        
+        /* 테이블 스타일 */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { background-color: #f8f8f8; border-bottom: 2px solid #333; padding: 12px; text-align: left; }
+        td { border-bottom: 1px solid #eee; padding: 10px; font-size: 14px; }
+        .title-click { color: #0066cc; cursor: pointer; font-weight: bold; }
+        
+        /* 버튼 스타일 */
+        .btn { padding: 6px 12px; cursor: pointer; border: none; border-radius: 3px; font-weight: bold; }
+        .btn-add { background-color: #28a745; color: white; }
+        .btn-del { background-color: #dc3545; color: white; padding: 3px 8px; font-size: 12px; }
+        .btn-save { background-color: #007bff; color: white; padding: 10px 20px; font-size: 16px; width: 100%; margin-top: 20px; }
+        
+        /* 폼 & 모달 */
+        .hidden { display: none; }
+        .overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; justify-content:center; align-items:center; }
+        .modal { background: white; padding: 25px; width: 80%; max-width: 600px; border-radius: 8px; }
+        input, textarea { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; box-sizing: border-box; }
+        
+        /* 결과창 */
+        #json-output-area { background: #e9ecef; padding: 20px; margin-top: 20px; border: 2px dashed #666; }
+        pre { white-space: pre-wrap; word-wrap: break-word; font-size: 12px; background: #fff; padding: 10px; border: 1px solid #ccc; }
     </style>
 </head>
 <body>
-    <header><strong>my-board</strong></header>
-    <div class="container">
-        <h2>👤 LLM(Large Language Model)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <td>1742</td> <td><a href="링크주소" class="title-link">새로운 글 제목입니다</a></td> <td>관리자</td>
-                    <td>0</td>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>1741</td>
-                    <td><a href="#" class="title-link">[13][RAG] Hybrid Search 서비스, Multyquery, Rag Fusion, Streamlit 사용</a></td>
-                    <td>관리자</td>
-                    <td>104</td>
-                </tr>
-                <tr>
-                    <td>1740</td>
-                    <td><a href="#" class="title-link">[12][RAG] Hybrid Search 서비스 (Multyquery, Hybrid Search, Rag Fusion)</a></td>
-                    <td>관리자</td>
-                    <td>100</td>
-                </tr>
-            </tbody>
-        </table>
+
+<header>
+    <div style="font-size: 20px;">👤 LLM Study Board Manager</div>
+    <button class="btn btn-add" onclick="openModal()">+ 새 글 작성</button>
+</header>
+
+<div class="container" id="main-view">
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 60px;">No</th>
+                <th>제목 (클릭 시 상세내용)</th>
+                <th style="width: 80px;">작성자</th>
+                <th style="width: 100px;">관리</th>
+            </tr>
+        </thead>
+        <tbody id="list-body"></tbody>
+    </table>
+
+    <button class="btn btn-save" onclick="exportJSON()">최종 결과 JSON 생성하기 (변경사항 반영)</button>
+
+    <div id="json-output-area" class="hidden">
+        <h3>✅ 생성된 JSON 코드</h3>
+        <p>아래 코드를 전체 복사하여 <strong>data.json</strong> 파일에 덮어쓰기 하세요.</p>
+        <pre id="json-pre"></pre>
+        <button class="btn" onclick="copyToClipboard()">코드 복사하기</button>
     </div>
+</div>
+
+<div id="detail-modal" class="overlay hidden">
+    <div class="modal">
+        <h2 id="view-title"></h2>
+        <hr>
+        <div id="view-content" style="min-height: 200px; padding: 10px; line-height: 1.6;"></div>
+        <button class="btn" onclick="closeDetail()">닫기</button>
+    </div>
+</div>
+
+<div id="write-modal" class="overlay hidden">
+    <div class="modal">
+        <h2>새 글 추가</h2>
+        <input type="number" id="in-no" placeholder="번호 (예: 1742)">
+        <input type="text" id="in-title" placeholder="글 제목을 입력하세요">
+        <textarea id="in-content" rows="8" placeholder="상세 내용을 입력하세요 (HTML 태그 가능)"></textarea>
+        <button class="btn btn-add" onclick="addNewPost()">리스트에 추가</button>
+        <button class="btn" onclick="closeModal()">취소</button>
+    </div>
+</div>
+
+<script>
+    let currentData = [];
+
+    // 1. 초기 JSON 데이터 로드
+    fetch('data.json')
+        .then(res => res.json())
+        .then(data => {
+            currentData = data;
+            renderTable();
+        });
+
+    // 2. 테이블 그리기
+    function renderTable() {
+        const tbody = document.getElementById('list-body');
+        tbody.innerHTML = '';
+        currentData.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item.no}</td>
+                <td class="title-click" onclick="viewDetail(${index})">${item.title}</td>
+                <td>${item.name}</td>
+                <td><button class="btn btn-del" onclick="deletePost(${index})">삭제</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 3. 상세 보기
+    function viewDetail(index) {
+        const item = currentData[index];
+        document.getElementById('view-title').innerText = item.title;
+        document.getElementById('view-content').innerHTML = item.content.replace(/\n/g, '<br>');
+        document.getElementById('detail-modal').classList.remove('hidden');
+    }
+
+    function closeDetail() { document.getElementById('detail-modal').classList.add('hidden'); }
+
+    // 4. 삭제 기능
+    function deletePost(index) {
+        if(confirm("정말 삭제하시겠습니까? 리스트에서 제거됩니다.")) {
+            currentData.splice(index, 1);
+            renderTable();
+        }
+    }
+
+    // 5. 추가 기능
+    function openModal() { 
+        document.getElementById('in-no').value = currentData.length > 0 ? currentData[0].no + 1 : 1;
+        document.getElementById('write-modal').classList.remove('hidden'); 
+    }
+    function closeModal() { document.getElementById('write-modal').classList.add('hidden'); }
+
+    function addNewPost() {
+        const newPost = {
+            no: parseInt(document.getElementById('in-no').value),
+            title: document.getElementById('in-title').value,
+            name: "관리자",
+            viewcnt: 0,
+            content: document.getElementById('in-content').value
+        };
+        currentData.unshift(newPost); // 맨 위에 추가
+        renderTable();
+        closeModal();
+    }
+
+    // 6. JSON 추출 기능
+    function exportJSON() {
+        const outputArea = document.getElementById('json-output-area');
+        const pre = document.getElementById('json-pre');
+        pre.innerText = JSON.stringify(currentData, null, 4);
+        outputArea.classList.remove('hidden');
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function copyToClipboard() {
+        const text = document.getElementById('json-pre').innerText;
+        navigator.clipboard.writeText(text).then(() => alert("코드가 복사되었습니다! data.json에 붙여넣으세요."));
+    }
+</script>
+
 </body>
 </html>
