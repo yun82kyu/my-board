@@ -33,7 +33,6 @@ st.set_page_config(page_title="My Board", layout="wide")
 categories, cat_sha = load_json("categories.json")
 all_data, data_sha = load_json("data.json")
 
-# 화면 모드: 'list'(게시판) 또는 'manage'(분류 관리)
 if "view_mode" not in st.session_state:
     st.session_state.view_mode = "list"
 if "current_cat" not in st.session_state:
@@ -43,7 +42,6 @@ if "current_cat" not in st.session_state:
 with st.sidebar:
     st.title("🚀 Navigation")
     
-    # [모드 전환 버튼]
     if st.button("📋 게시판 보기", key="nav_list_btn", use_container_width=True, 
                  type="primary" if st.session_state.view_mode == "list" else "secondary"):
         st.session_state.view_mode = "list"
@@ -56,7 +54,6 @@ with st.sidebar:
     
     st.divider()
     
-    # [게시판 모드일 때만 카테고리 목록 표시]
     if st.session_state.view_mode == "list":
         st.subheader("📁 카테고리")
         for idx, cat in enumerate(categories):
@@ -72,7 +69,6 @@ with st.sidebar:
 if st.session_state.view_mode == "manage":
     st.title("⚙️ 대분류 관리 센터")
     
-    # 1. 새 분류 추가
     with st.container(border=True):
         st.subheader("➕ 새 분류 추가")
         new_cat = st.text_input("추가할 분류 이름을 입력하세요", key="input_new_cat")
@@ -87,12 +83,10 @@ if st.session_state.view_mode == "manage":
 
     st.write("")
 
-    # 2. 분류 삭제 (글이 0개인 것만 삭제 가능하게 하여 데이터 유실 방지)
     with st.container(border=True):
         st.subheader("🗑️ 분류 삭제")
         st.caption("※ 게시글이 하나도 없는 분류만 삭제할 수 있습니다.")
         
-        # 삭제 가능한 분류 필터링
         deletable = [c for c in categories if len([i for i in all_data if i.get('category') == c]) == 0]
         
         if not deletable:
@@ -105,4 +99,23 @@ if st.session_state.view_mode == "manage":
                 if confirm and del_target:
                     if len(categories) > 1:
                         categories.remove(del_target)
-                        save_json("categories.json", categories
+                        # --- 오류 수정 지점: 괄호를 정확히 닫음 ---
+                        save_json("categories.json", categories, cat_sha)
+                        if st.session_state.current_cat == del_target:
+                            st.session_state.current_cat = categories[0]
+                        st.rerun()
+                    else:
+                        st.error("최소 한 개의 분류는 남겨두어야 합니다.")
+                else:
+                    st.warning("삭제 확인 체크박스에 체크해 주세요.")
+
+# [B] 게시판 목록 페이지
+else:
+    st.title(f"📍 {st.session_state.current_cat}")
+    
+    filtered_data = [i for i in all_data if i.get('category') == st.session_state.current_cat]
+
+    with st.expander(f"➕ {st.session_state.current_cat}에 새 글 쓰기"):
+        with st.form("write_form"):
+            title = st.text_input("제목")
+            content = st.text_
