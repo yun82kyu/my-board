@@ -35,11 +35,11 @@ all_data, data_sha = load_json("data.json")
 if "current_cat" not in st.session_state:
     st.session_state.current_cat = categories[0] if categories else "기본분류"
 
-# --- 2. 좌측 사이드바 ---
+# --- 2. 좌측 사이드바 (조건부 삭제 로직) ---
 with st.sidebar:
     st.subheader("📁 대분류")
     
-    # 분류 추가는 유지 (화살표가 있는 팝업이 정 싫으시면 나중에 버튼으로 수정 가능)
+    # 분류 추가
     with st.popover("➕ 분류 추가", use_container_width=True):
         new_name = st.text_input("새 분류 명칭")
         if st.button("저장", key="add_cat_btn"):
@@ -51,48 +51,42 @@ with st.sidebar:
     st.divider()
 
     for idx, cat in enumerate(categories):
-        side_c1, side_c2 = st.columns([4, 1.2])
+        # 글이 하나라도 있는지 확인
+        post_count = len([i for i in all_data if i.get('category') == cat])
         
-        # 분류 선택 버튼
-        is_sel = (st.session_state.current_cat == cat)
-        if side_c1.button(cat, key=f"cat_sel_{idx}", use_container_width=True, type="primary" if is_sel else "secondary"):
-            st.session_state.current_cat = cat
-            st.query_params.clear()
-            st.rerun()
+        # 글이 있으면 삭제 버튼 공간을 비우고(columns 비율 조정), 없으면 삭제 버튼 표시
+        if post_count > 0:
+            # 글이 있는 카테고리는 이름만 표시 (삭제 불가)
+            if st.button(f"{cat} ({post_count})", key=f"cat_sel_{idx}", use_container_width=True, 
+                         type="primary" if st.session_state.current_cat == cat else "secondary"):
+                st.session_state.current_cat = cat
+                st.query_params.clear()
+                st.rerun()
+        else:
+            # 글이 없는 카테고리만 삭제 버튼(🗑️) 노출
+            side_c1, side_c2 = st.columns([4, 1.2])
+            if side_c1.button(cat, key=f"cat_sel_{idx}", use_container_width=True, 
+                             type="primary" if st.session_state.current_cat == cat else "secondary"):
+                st.session_state.current_cat = cat
+                st.query_params.clear()
+                st.rerun()
             
-        # 화살표 없는 삭제 버튼
-        # 팝업을 쓰지 않고 일반 버튼을 사용하여 화살표를 제거했습니다.
-        if side_c2.button("🗑️", key=f"del_trigger_{idx}"):
-            # 삭제 확인 창을 띄울지 말지 세션 상태를 토글합니다.
-            st.session_state[f"show_confirm_{idx}"] = not st.session_state.get(f"show_confirm_{idx}", False)
-
-        # 삭제 버튼을 눌렀을 때만 하단에 나타나는 '최종 확인' 창
-        if st.session_state.get(f"show_confirm_{idx}", False):
-            post_count = len([i for i in all_data if i.get('category') == cat])
-            
-            # 스타일을 위해 아주 작은 정보창 형태로 출력
-            st.error(f"'{cat}' 삭제 시 글 {post_count}개 관리 불가.")
-            
-            # 여기서 에러를 피하기 위해 버튼 대신 토글(toggle)을 사용하거나
-            # 체크박스를 활용하는 것이 가장 안전합니다.
-            if st.checkbox("정말 삭제하려면 체크하세요", key=f"final_chk_{idx}"):
-                if st.button(f"🔥 {cat} 최종 삭제", key=f"final_del_{idx}", type="danger", use_container_width=True):
-                    if len(categories) > 1:
-                        categories.remove(cat)
-                        save_json("categories.json", categories, cat_sha)
-                        if st.session_state.current_cat == cat:
-                            st.session_state.current_cat = categories[0]
-                        # 삭제 성공 후 세션 정리
-                        st.session_state[f"show_confirm_{idx}"] = False
-                        st.rerun()
-                    else:
-                        st.warning("최소 1개의 분류는 필요합니다.")
+            if side_c2.button("🗑️", key=f"direct_del_{idx}", help="내용이 없어 즉시 삭제 가능"):
+                if len(categories) > 1:
+                    categories.remove(cat)
+                    save_json("categories.json", categories, cat_sha)
+                    if st.session_state.current_cat == cat:
+                        st.session_state.current_cat = categories[0]
+                    st.rerun()
+                else:
+                    st.error("최소 1개 필요")
 
 # --- 3. 메인 화면 ---
 params = st.query_params
 current_view = params.get("view", "list")
 selected_no = params.get("no", None)
 
+# 상세 페이지
 if current_view == "detail" and selected_no:
     post = next((i for i in all_data if str(i['no']) == str(selected_no)), None)
     if post:
@@ -102,20 +96,18 @@ if current_view == "detail" and selected_no:
         st.info(post['content'])
     st.stop()
 
+# 목록 페이지
 st.title(f"👤 {st.session_state.current_cat}")
 filtered_data = [i for i in all_data if i.get('category') == st.session_state.current_cat]
 
-# 검색창 한 줄 레이아웃
 search_c, write_c = st.columns([5, 1.2])
 search_q = search_c.text_input("", placeholder="🔍 제목 검색...", label_visibility="collapsed")
 
-# 신규 행 추가 버튼 (이것도 화살표 없는 버튼 방식으로 수정)
 if write_c.button("📝 행 추가", use_container_width=True):
     st.session_state.show_main_write = not st.session_state.get("show_main_write", False)
 
 if st.session_state.get("show_main_write", False):
     with st.form("main_write_form_stable", clear_on_submit=True):
-        st.caption(f"📍 {st.session_state.current_cat} 분류에 새 글 저장")
         nt = st.text_input("제목")
         nc = st.text_area("내용")
         if st.form_submit_button("저장"):
