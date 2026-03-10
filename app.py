@@ -7,37 +7,29 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="My Board", layout="wide")
 
-# -----------------------------
-# 1. GitHub 연결 및 설정
-# -----------------------------
+# 1. GitHub 연결 (기존 유지)
 if "repo" not in st.session_state:
     try:
         g = Github(st.secrets["GITHUB_TOKEN"])
         st.session_state.repo = g.get_repo(st.secrets["REPO_NAME"])
     except Exception as e:
-        st.error(f"GitHub 연결 실패: {e}")
-        st.stop()
+        st.error(f"GitHub 연결 실패: {e}"); st.stop()
 
-# -----------------------------
-# 2. 데이터 로드/저장 함수
-# -----------------------------
+# 2. 데이터 로드/저장 (기존 유지)
 def load_json(file):
     try:
         content = st.session_state.repo.get_contents(file)
         return json.loads(content.decoded_content.decode("utf-8")), content.sha
-    except:
-        return [], None
+    except: return [], None
 
 def save_json(file, data):
     try:
         json_string = json.dumps(data, indent=4, ensure_ascii=False)
         curr = st.session_state.repo.get_contents(file)
         st.session_state.repo.update_file(file, "update data", json_string, curr.sha)
-        st.session_state.posts = data # 세션 데이터 즉시 갱신
-    except Exception as e:
-        st.error(f"저장 오류: {e}")
+        st.session_state.posts = data
+    except Exception as e: st.error(f"저장 오류: {e}")
 
-# 초기 데이터 로드
 if "posts" not in st.session_state:
     pts, _ = load_json("data.json")
     st.session_state.posts = pts if pts else []
@@ -46,169 +38,117 @@ if "categories" not in st.session_state:
     cats, _ = load_json("categories.json")
     st.session_state.categories = cats if cats else ["기본분류"]
 
-# 세션 상태 초기화
-if "mode" not in st.session_state: st.session_state.mode = "board"
 if "view_post" not in st.session_state: st.session_state.view_post = None
 if "write_mode" not in st.session_state: st.session_state.write_mode = False
-if "category" not in st.session_state: 
-    st.session_state.category = st.session_state.categories[0]
+if "category" not in st.session_state: st.session_state.category = st.session_state.categories[0]
 
-# -----------------------------
-# 3. 커스텀 에디터 (드래그앤드롭 & 복사붙여넣기 강화)
-# -----------------------------
+# 3. 강화된 커스텀 에디터 (붙여넣기 즉시 동기화)
 def custom_rich_editor():
-    # Quill 에디터: 이미지 처리 능력이 가장 뛰어난 설정
-    editor_html = """
+    editor_id = "quill_editor_unique"
+    editor_html = f"""
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
-    <style>
-        #editor-container { height: 450px; background: white; color: black !important; font-size: 16px; }
-        .ql-editor { color: black !important; }
-        .ql-editor.ql-blank::before { color: rgba(0,0,0,0.3) !important; }
-    </style>
-    <div id="editor-container"></div>
+    <div id="{editor_id}" style="height: 450px; background: white; color: black !important;"></div>
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
     <script>
-        var quill = new Quill('#editor-container', {
-            modules: {
-                toolbar: [
-                    [{ 'header': [1, 2, 3, false] }],
-                    ['bold', 'italic', 'underline', 'strike'],
-                    ['blockquote', 'code-block'],
-                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                    ['link', 'image'],
-                    ['clean']
-                ]
-            },
-            placeholder: '여기에 내용을 작성하거나 이미지를 드래그해서 넣으세요...',
+        var quill = new Quill('#{editor_id}', {{
+            modules: {{ toolbar: [[{{'header': [1, 2, false]}}], ['bold', 'italic', 'image', 'code-block']] }},
+            placeholder: '이미지를 복사(Ctrl+V)해서 붙여넣으세요...',
             theme: 'snow'
-        });
+        }});
 
-        // 사용자가 입력할 때마다 Streamlit으로 HTML 데이터 전송
-        quill.on('text-change', function() {
+        // 중요: 모든 변화(붙여넣기 포함)를 감지하여 부모에게 전송
+        function sendToStreamlit() {{
             var content = quill.root.innerHTML;
-            window.parent.postMessage({
+            window.parent.postMessage({{
                 type: 'streamlit:setComponentValue',
                 value: content
-            }, '*');
-        });
+            }}, '*');
+        }}
+
+        quill.on('text-change', function() {{
+            sendToStreamlit();
+        }});
+        
+        // 붙여넣기 직후 강제 동기화
+        quill.root.addEventListener('paste', function() {{
+            setTimeout(sendToStreamlit, 100);
+        }});
     </script>
+    <style>
+        .ql-editor {{ color: black !important; font-size: 16px; min-height: 450px; }}
+    </style>
     """
     return components.html(editor_html, height=500)
 
-# -----------------------------
-# 4. 사이드바 메뉴
-# -----------------------------
+# 4. 사이드바 (기존 유지)
 with st.sidebar:
-    st.title("📚 Fast Board")
-    if st.button("📋 전체 게시판", use_container_width=True):
-        st.session_state.view_post = None
-        st.session_state.write_mode = False
-        st.rerun()
-    
+    st.title("📚 My Board")
+    if st.button("📋 게시판 홈", use_container_width=True):
+        st.session_state.view_post = None; st.session_state.write_mode = False; st.rerun()
     st.divider()
-    st.subheader("📁 카테고리")
     for idx, c in enumerate(st.session_state.categories):
-        if st.button(c, key=f"side_{idx}", use_container_width=True, 
-                     type="primary" if st.session_state.category == c else "secondary"):
-            st.session_state.category = c
-            st.session_state.view_post = None
-            st.session_state.write_mode = False
-            st.rerun()
+        if st.button(c, key=f"side_{idx}", use_container_width=True, type="primary" if st.session_state.category == c else "secondary"):
+            st.session_state.category = c; st.session_state.view_post = None; st.session_state.write_mode = False; st.rerun()
 
-# -----------------------------
-# 5. 메인 게시판 로직
-# -----------------------------
-
-# [글쓰기 화면]
+# 5. 메인 로직
 if st.session_state.write_mode:
-    st.title("📝 새 게시글 작성")
-    new_title = st.text_input("제목", key="write_title", placeholder="제목을 입력하세요")
+    st.title("📝 새 글 작성")
+    new_title = st.text_input("제목", key="w_title")
     
-    st.markdown("#### 본문 내용")
-    st.info("💡 **팁:** 이미지는 드래그해서 넣거나, 캡처 후 `Ctrl+V`로 바로 붙여넣을 수 있습니다.")
-    
-    # 에디터 호출 및 데이터 수신
-    rich_content = custom_rich_editor()
+    # 에디터 호출
+    content_raw = custom_rich_editor()
 
     col1, col2 = st.columns(2)
-    if col1.button("💾 저장하기", use_container_width=True, type="primary"):
-        # 데이터가 DeltaGenerator 객체인지 문자열인지 판별하여 처리
-        final_body = str(rich_content) if rich_content else ""
+    if col1.button("💾 저장하기", type="primary", use_container_width=True):
+        # [핵심] DeltaGenerator 객체가 오지 않도록 문자열 변환 및 검증
+        final_content = str(content_raw) if content_raw else ""
         
-        if new_title and final_body and "DeltaGenerator" not in final_body:
-            new_no = max([p.get("no", 0) for p in st.session_state.posts], default=0) + 1
+        # 'None'이나 'DeltaGenerator'가 포함된 잘못된 값 필터링
+        if new_title and len(final_content) > 20 and "DeltaGenerator" not in final_content:
             new_post = {
-                "no": new_no,
+                "no": int(time.time()),
                 "title": new_title,
-                "content": final_body,
+                "content": final_content,
                 "category": st.session_state.category,
                 "date": datetime.now().strftime("%Y-%m-%d")
             }
             st.session_state.posts.insert(0, new_post)
             save_json("data.json", st.session_state.posts)
-            st.success("✅ 게시글이 등록되었습니다!")
-            time.sleep(1)
-            st.session_state.write_mode = False
-            st.rerun()
+            st.success("등록되었습니다!"); time.sleep(1)
+            st.session_state.write_mode = False; st.rerun()
         else:
-            st.warning("제목과 본문을 확인해주세요. (본문을 막 작성했다면 1초 뒤에 눌러주세요)")
-            
-    if col2.button("❌ 취소", use_container_width=True):
-        st.session_state.write_mode = False
-        st.rerun()
+            st.warning("내용이 아직 인식되지 않았습니다. 이미지를 넣으셨다면 1~2초 후 다시 눌러주세요.")
 
-# [상세 보기 화면]
+    if col2.button("❌ 취소", use_container_width=True):
+        st.session_state.write_mode = False; st.rerun()
+
 elif st.session_state.view_post:
     post = next((p for p in st.session_state.posts if p["no"] == st.session_state.view_post), None)
-
     if post:
         st.title(post["title"])
-        st.caption(f"📅 {post.get('date')} | 📂 {post.get('category')}")
+        st.caption(f"{post['date']} | {post['category']}")
         st.divider()
-
-        # 글자색 검정 고정 및 이미지 자동 크기 조절 스타일 적용
+        # [핵심] 배경 흰색, 글자 검은색 강제 적용
         st.markdown(f"""
-            <div style="background-color: white; padding: 30px; border-radius: 15px; border: 1px solid #eee; color: #333 !important;">
+            <div style="background: white; padding: 25px; border-radius: 10px; border: 1px solid #ddd; color: black !important;">
                 <style>
-                    .rendered-html * {{ color: #333 !important; font-size: 16px; line-height: 1.7; }}
-                    .rendered-html img {{ max-width: 100%; height: auto; display: block; margin: 20px 0; border-radius: 10px; }}
-                    .rendered-html pre {{ background: #f4f4f4; padding: 15px; border-radius: 8px; color: #d63384 !important; }}
+                    .post-body * {{ color: black !important; }}
+                    .post-body img {{ max-width: 100%; height: auto; display: block; margin: 15px 0; }}
                 </style>
-                <div class="rendered-html">
-                    {post.get('content', '')}
-                </div>
+                <div class="post-body">{post['content']}</div>
             </div>
         """, unsafe_allow_html=True)
+        if st.button("🔙 목록"): st.session_state.view_post = None; st.rerun()
 
-        st.divider()
-        if st.button("🔙 목록으로 돌아가기"):
-            st.session_state.view_post = None
-            st.rerun()
-
-# [목록 화면]
 else:
     st.title(f"📂 {st.session_state.category}")
-    if st.button("➕ 새 글 추가하기", type="primary"):
-        st.session_state.write_mode = True
-        st.rerun()
-    
-    st.divider()
+    if st.button("➕ 새 글 추가"): st.session_state.write_mode = True; st.rerun()
     filtered = [p for p in st.session_state.posts if p.get("category") == st.session_state.category]
-    
-    if not filtered:
-        st.info("이 카테고리에 등록된 글이 없습니다.")
-    else:
-        # 헤더
-        h1, h2, h3 = st.columns([1, 7, 1.5])
-        h1.write("**번호**"); h2.write("**제목**"); h3.write("**관리**")
-        
-        for p in filtered:
-            c1, c2, c3 = st.columns([1, 7, 1.5])
-            c1.write(f"{p['no']}")
-            if c2.button(p["title"], key=f"post_{p['no']}", use_container_width=True):
-                st.session_state.view_post = p["no"]
-                st.rerun()
-            if c3.button("🗑️", key=f"del_{p['no']}", use_container_width=True):
-                st.session_state.posts = [item for item in st.session_state.posts if item["no"] != p["no"]]
-                save_json("data.json", st.session_state.posts)
-                st.rerun()
+    for p in filtered:
+        c1, c2, c3 = st.columns([1, 7, 1.5])
+        c1.write(f"{p['no']}")
+        if c2.button(p["title"], key=f"p_{p['no']}", use_container_width=True):
+            st.session_state.view_post = p["no"]; st.rerun()
+        if c3.button("🗑️", key=f"d_{p['no']}", use_container_width=True):
+            st.session_state.posts = [i for i in st.session_state.posts if i["no"] != p["no"]]
+            save_json("data.json", st.session_state.posts); st.rerun()
