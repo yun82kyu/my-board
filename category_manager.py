@@ -3,64 +3,51 @@ import streamlit as st
 def show_category_manager(categories, cat_sha, all_data, save_json_func):
     st.title("⚙️ 대분류 관리 센터")
     
-    # --- [추가 섹션] ---
-    with st.form("form_add_category_unique", clear_on_submit=True):
+    # --- 1. 신규 분류 추가 (Form은 독립된 공간이라 안전합니다) ---
+    with st.form("form_add_new_cat", clear_on_submit=True):
         st.subheader("➕ 신규 분류 추가")
-        new_name = st.text_input("새 분류 이름", placeholder="예: 자유게시판", key="input_new_cat_name")
-        submit_add = st.form_submit_button("추가하기", use_container_width=True)
-        
-        if submit_add:
+        new_name = st.text_input("새 분류 이름", key="input_add_name")
+        if st.form_submit_button("추가하기", use_container_width=True):
             if new_name and new_name not in categories:
                 categories.append(new_name)
                 save_json_func("categories.json", categories, cat_sha)
-                st.success(f"'{new_name}' 추가 완료!")
                 st.rerun()
 
     st.write("---")
 
-    # --- [삭제 섹션] ---
+    # --- 2. 분류 삭제 (체크박스 방식 - 가장 안전함) ---
     st.subheader("🗑️ 분류 삭제")
-    
-    # 삭제 가능한(글이 0개인) 카테고리 추출
+    st.caption("글이 0개인 분류만 목록에 나타납니다.")
+
+    # 삭제 가능한 분류 찾기
     deletable_cats = [
         cat for cat in categories 
         if len([i for i in all_data if i.get('category') == cat]) == 0
     ]
-    
+
     if not deletable_cats:
-        st.info("현재 삭제 가능한(비어 있는) 분류가 없습니다.")
+        st.info("삭제 가능한 빈 분류가 없습니다.")
     else:
-        # selectbox에 고유 key 부여
-        target_cat = st.selectbox(
-            "삭제할 분류를 선택하세요", 
-            deletable_cats, 
-            index=None, 
-            placeholder="분류 선택...",
-            key="selectbox_delete_target"
-        )
-        
-        # 삭제 버튼에 절대 중복되지 않는 고유 key 부여
-        if st.button("선택한 분류 즉시 삭제", type="danger", use_container_width=True, key="btn_final_delete_action"):
-            if target_cat and len(categories) > 1:
-                categories.remove(target_cat)
-                save_json_func("categories.json", categories, cat_sha)
-                if st.session_state.current_cat == target_cat:
-                    st.session_state.current_cat = categories[0]
-                st.rerun()
-            elif not target_cat:
-                st.warning("삭제할 대상을 먼저 선택해주세요.")
-            else:
-                st.error("최소 한 개의 분류는 남겨두어야 합니다.")
+        # 폼으로 감싸서 버튼 클릭 시에만 삭제가 일어나도록 격리
+        with st.form("delete_management_form"):
+            target_to_del = st.selectbox("삭제할 분류 선택", deletable_cats, key="select_del_target")
+            confirm_check = st.checkbox("위 분류를 영구 삭제하는 것에 동의합니다.", key="check_del_confirm")
+            
+            submit_del = st.form_submit_button("🔥 선택 분류 삭제 실행", type="danger", use_container_width=True)
+            
+            if submit_del:
+                if not confirm_check:
+                    st.warning("동의 체크박스를 선택해주세요.")
+                elif target_to_del and len(categories) > 1:
+                    categories.remove(target_to_del)
+                    save_json_func("categories.json", categories, cat_sha)
+                    if st.session_state.current_cat == target_to_del:
+                        st.session_state.current_cat = categories[0]
+                    st.rerun()
+                else:
+                    st.error("삭제할 수 없습니다 (최소 1개 유지 필요).")
 
     st.write("---")
-    
-    # --- [목록 확인] ---
-    st.subheader("📋 현재 대분류 현황")
-    for idx, cat in enumerate(categories):
-        count = len([i for i in all_data if i.get('category') == cat])
-        st.write(f"{idx+1}. **{cat}** (게시글: {count}개)")
-
-    # 돌아가기 버튼에도 고유 key 부여
-    if st.button("← 메인 게시판으로", key="btn_back_to_main_dashboard"):
+    if st.button("← 메인 게시판으로 돌아가기", key="btn_exit_manager"):
         st.session_state.view_mode = "list"
         st.rerun()
