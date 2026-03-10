@@ -1,124 +1,248 @@
 import streamlit as st
 import json
-import os
 from github import Github
 from datetime import datetime
+import time
+from PIL import Image
 import streamlit.components.v1 as components
 
-st.set_page_config(page_title="My Rich Board", layout="wide")
+st.set_page_config(page_title="My Board", layout="wide")
 
-# 1. GitHub 연결 (기존 로직 유지)
-try:
-    g = Github(st.secrets["GITHUB_TOKEN"])
-    repo = g.get_repo(st.secrets["REPO_NAME"])
-except Exception as e:
-    st.error("GitHub 연결 실패. secrets 설정을 확인하세요.")
-    st.stop()
+# -----------------------------
+# 1. GitHub 연결
+# -----------------------------
+if "repo" not in st.session_state:
+    try:
+        g = Github(st.secrets["GITHUB_TOKEN"])
+        st.session_state.repo = g.get_repo(st.secrets["REPO_NAME"])
+    except Exception as e:
+        st.error(f"GitHub 연결 실패: {e}")
+        st.stop()
 
-# 2. 데이터 로드/저장 함수
+# -----------------------------
+# 2. 데이터 로드
+# -----------------------------
+@st.cache_data(ttl=300)
 def load_json(file):
     try:
-        content = repo.get_contents(file)
+        content = st.session_state.repo.get_contents(file)
         return json.loads(content.decoded_content.decode("utf-8")), content.sha
-    except: return [], None
+    except:
+        return [], None
 
 def save_json(file, data):
+    # 데이터 직렬화 전 특수 객체 여부 체크 및 변환
     json_string = json.dumps(data, indent=4, ensure_ascii=False)
-    curr = repo.get_contents(file)
-    repo.update_file(file, "update data", json_string, curr.sha)
+    try:
+        curr = st.session_state.repo.get_contents(file)
+        st.session_state.repo.update_file(file, "update data", json_string, curr.sha)
+        st.cache_data.clear()
+    except Exception as e:
+        st.error(f"저장 오류: {e}")
 
-# 3. Summernote 에디터 컴포넌트 (HTML/JS)
-def summernote_editor():
-    # 에디터의 HTML 소스
-    editor_html = """
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/summernote/0.8.18/summernote.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/summernote/0.8.18/summernote.js"></script>
-    
-    <div id="summernote"></div>
-    <button id="saveBtn" class="btn btn-primary btn-block" style="margin-top:10px;">본문 확정하기</button>
-
+# -----------------------------
+# 3. 리치 텍스트 에디터 컴포넌트
+# -----------------------------
+def quill_editor(existing_content=""):
+    # Quill 에디터 HTML/JS
+    # 이미지를 드래그 앤 드롭하면 Base64로 자동 변환되어 본문에 삽입됩니다.
+    editor_html = f"""
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <div id="editor" style="height: 400px; background: white;">{existing_content}</div>
     <script>
-        $(document).ready(function() {
-            $('#summernote').summernote({
-                height: 400,
-                placeholder: '내용을 입력하고 이미지를 드래그해서 넣으세요.',
-                callbacks: {
-                    onChange: function(contents) {
-                        window.parent.postMessage({type: 'streamlit:setComponentValue', value: contents}, '*');
-                    }
-                }
-            });
-            $('#saveBtn').click(function() {
-                const content = $('#summernote').summernote('code');
-                window.parent.postMessage({type: 'streamlit:setComponentValue', value: content}, '*');
-                alert("본문이 준비되었습니다. 아래 저장 버튼을 눌러주세요.");
-            });
-        });
+        var quill = new Quill('#editor', {{
+            modules: {{ toolbar: [
+                [{{ header: [1, 2, false] }}],
+                ['bold', 'italic', 'underline'],
+                ['image', 'code-block'],
+                ['clean']
+            ]}},
+            theme: 'snow'
+        }});
+        
+        // 내용이 바뀔 때마다 Streamlit으로 전송
+        quill.on('text-change', function() {{
+            var content = quill.root.innerHTML;
+            window.parent.postMessage({{
+                type: 'streamlit:setComponentValue',
+                value: content
+            }}, '*');
+        }});
     </script>
     """
-    # Streamlit에 HTML 에디터 표시
-    return components.html(editor_html, height=520)
+    return components.html(editor_html, height=450)
 
-# --- 메인 화면 로직 ---
+# -----------------------------
+# 초기 데이터 로드
+# -----------------------------
+if "categories" not in st.session_state:
+    cats, _ = load_json("categories.json")
+    st.session_state.categories = cats if cats else ["기본분류"]
+
 if "posts" not in st.session_state:
     pts, _ = load_json("data.json")
-    st.session_state.posts = pts
+    st.session_state.posts = pts if pts else []
 
+# -----------------------------
+# 세션 상태
+# -----------------------------
+if "mode" not in st.session_state:
+    st.session_state.mode = "board"
+if "view_post" not in st.session_state:
+    st.session_state.view_post = None
 if "write_mode" not in st.session_state:
     st.session_state.write_mode = False
+if "category" not in st.session_state:
+    st.session_state.category = st.session_state.categories[0]
 
-# 글쓰기 모드
-if st.session_state.write_mode:
-    st.title("📝 새 글 작성 (에디터)")
-    title = st.text_input("제목")
-    category = st.selectbox("카테고리", ["OOP", "LLM", "Python"])
-    
-    st.info("💡 아래 에디터에서 작성 후 '본문 확정하기'를 먼저 눌러주세요.")
-    # 에디터 호출 및 결과값 받기
-    content_data = summernote_editor()
-    
-    # 실제 저장 버튼
-    # 기존 코드 95라인 부근 수정
-    if st.button("🚀 최종 저장 및 업로드"):
-        if title and content_data:
-            new_no = max([p.get("no", 0) for p in st.session_state.posts], default=0) + 1
-            
-            # 핵심 수정: content_data를 str()로 감싸서 문자열로 확정합니다.
-            safe_content = str(content_data) 
-    
-            new_post = {
-                "no": new_no,
-                "title": title,
-                "category": category,
-                "content": safe_content, # 이제 JSON 저장이 가능해집니다.
-                "date": datetime.now().strftime("%Y-%m-%d")
-            }
-            st.session_state.posts.insert(0, new_post)
-            save_json("data.json", st.session_state.posts)
-            st.session_state.write_mode = False
-            st.rerun()
-        else:
-            st.warning("제목과 본문을 확인해주세요.")
-            
-    if st.button("취소"):
+# -----------------------------
+# 사이드바
+# -----------------------------
+with st.sidebar:
+    st.title("📚 Fast Board")
+    c1, c2 = st.columns(2)
+    if c1.button("📋 게시판", use_container_width=True):
+        st.session_state.mode = "board"
+        st.session_state.view_post = None
         st.session_state.write_mode = False
         st.rerun()
-
-# 게시글 목록/보기 모드
-else:
-    st.title("📚 My Rich Board")
-    if st.button("➕ 새 글 작성"):
-        st.session_state.write_mode = True
+    if c2.button("⚙️ 관리", use_container_width=True):
+        st.session_state.mode = "admin"
         st.rerun()
 
-    for post in st.session_state.posts:
-        with st.expander(f"[{post.get('category')}] {post.get('title')} ({post.get('date')})"):
-            # HTML 렌더링 (이미지 포함)
-            st.components.v1.html(post.get('content'), height=500, scrolling=True)
-            if st.button("삭제", key=f"del_{post['no']}"):
-                st.session_state.posts = [p for p in st.session_state.posts if p['no'] != post['no']]
-                save_json("data.json", st.session_state.posts)
+    st.divider()
+    st.subheader("📁 카테고리")
+    for idx, c in enumerate(st.session_state.categories):
+        if st.button(
+            c,
+            key=f"side_{idx}",
+            use_container_width=True,
+            type="primary" if st.session_state.category == c else "secondary"
+        ):
+            st.session_state.category = c
+            st.session_state.mode = "board"
+            st.session_state.view_post = None
+            st.session_state.write_mode = False
+            st.rerun()
+
+# -----------------------------
+# 관리자 모드
+# -----------------------------
+if st.session_state.mode == "admin":
+    st.title("⚙️ 카테고리 관리")
+    with st.container(border=True):
+        st.subheader("➕ 추가")
+        new_cat = st.text_input("새 카테고리")
+        if st.button("추가 실행"):
+            if new_cat and new_cat not in st.session_state.categories:
+                st.session_state.categories.append(new_cat)
+                save_json("categories.json", st.session_state.categories)
                 st.rerun()
+    with st.container(border=True):
+        st.subheader("🗑️ 삭제")
+        del_target = st.selectbox("삭제할 대상", st.session_state.categories)
+        if st.button("삭제 실행"):
+            if len(st.session_state.categories) > 1:
+                st.session_state.categories.remove(del_target)
+                save_json("categories.json", st.session_state.categories)
+                st.rerun()
+            else:
+                st.error("최소 1개는 필요합니다.")
+
+# -----------------------------
+# 게시판 모드
+# -----------------------------
+else:
+    # -------------------------
+    # 글쓰기 페이지
+    # -------------------------
+    if st.session_state.write_mode:
+        st.title("📝 새 게시글 작성")
+        
+        new_title = st.text_input("제목", key="write_title")
+        
+        st.markdown("### 본문 작성 (이미지를 복사/붙여넣기 하거나 아이콘을 클릭하세요)")
+        # HTML 에디터 호출
+        rich_content = quill_editor()
+
+        col1, col2 = st.columns(2)
+        if col1.button("💾 저장하기", use_container_width=True, type="primary"):
+            if new_title and rich_content:
+                new_no = max([p.get("no", 0) for p in st.session_state.posts], default=0) + 1
+                
+                # 에디터에서 넘어온 값은 특수 객체일 수 있으므로 str() 변환
+                final_content = str(rich_content)
+                
+                st.session_state.posts.insert(0, {
+                    "no": new_no,
+                    "title": new_title,
+                    "content": final_content,
+                    "category": st.session_state.category,
+                    "date": datetime.now().strftime("%Y-%m-%d")
+                })
+                
+                save_json("data.json", st.session_state.posts)
+                st.success("✅ 등록 완료!")
+                st.session_state.write_mode = False
+                st.rerun()
+            else:
+                st.warning("제목과 본문을 모두 입력해주세요.")
+        
+        if col2.button("❌ 취소", use_container_width=True):
+            st.session_state.write_mode = False
+            st.rerun()
+
+    # -------------------------
+    # 게시글 보기
+    # -------------------------
+    elif st.session_state.view_post:
+        post = next((p for p in st.session_state.posts if p["no"] == st.session_state.view_post), None)
+
+        if post:
+            st.title(post["title"])
+            st.caption(f"📅 {post.get('date')} | 📂 {post.get('category')}")
+            st.divider()
+
+            # 저장된 HTML 콘텐츠(이미지 포함)를 안전하게 렌더링
+            components.html(f"""
+                <style>
+                    img {{ max-width: 100%; height: auto; }}
+                    body {{ font-family: sans-serif; line-height: 1.6; color: #333; }}
+                </style>
+                {post['content']}
+            """, height=800, scrolling=True)
+
+            st.divider()
+            if st.button("🔙 목록으로"):
+                st.session_state.view_post = None
+                st.rerun()
+
+    # -------------------------
+    # 게시글 목록
+    # -------------------------
+    else:
+        st.title(f"📂 {st.session_state.category}")
+        if st.button("➕ 새 글 추가"):
+            st.session_state.write_mode = True
+            st.rerun()
+
+        st.divider()
+        filtered = [p for p in st.session_state.posts if p.get("category") == st.session_state.category]
+
+        if not filtered:
+            st.info("글이 없습니다.")
+        else:
+            h1, h2, h3 = st.columns([1, 7, 1.5])
+            h1.write("**번호**"); h2.write("**제목**"); h3.write("**관리**")
+
+            for p in filtered:
+                col1, col2, col3 = st.columns([1, 7, 1.5])
+                col1.write(f"{p['no']}")
+                if col2.button(p["title"], key=f"list_{p['no']}", use_container_width=True):
+                    st.session_state.view_post = p["no"]
+                    st.rerun()
+                if col3.button("🗑️", key=f"del_{p['no']}", use_container_width=True):
+                    st.session_state.posts = [item for item in st.session_state.posts if item["no"] != p["no"]]
+                    save_json("data.json", st.session_state.posts)
+                    st.rerun()
