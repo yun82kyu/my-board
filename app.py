@@ -84,16 +84,18 @@ with st.sidebar:
 
     st.divider()
 
-    if st.session_state.mode == "board":
-        st.subheader("📁 카테고리")
-        for idx, c in enumerate(categories):
-            is_active = (st.session_state.category == c)
-            # 카테고리 버튼 키에 인덱스를 붙여 중복 방지
-            if st.button(c, key=f"cat_btn_{idx}_{t_key}", use_container_width=True, 
-                         type="primary" if is_active else "secondary"):
-                st.session_state.category = c
-                st.session_state.view_post = None
-                st.rerun()
+    # 🌟 조건문(if st.session_state.mode == "board":)을 제거했습니다.
+    # 이제 '관리' 모드에서도 카테고리 리스트가 보입니다.
+    st.subheader("📁 카테고리 목록")
+    for idx, c in enumerate(categories):
+        is_active = (st.session_state.category == c)
+        if st.button(c, key=f"side_cat_{idx}_{t_key}", use_container_width=True, 
+                     type="primary" if is_active else "secondary"):
+            st.session_state.category = c
+            st.session_state.view_post = None
+            # 카테고리를 클릭하면 자동으로 '게시판' 모드로 전환되게 하고 싶다면 아래줄 추가
+            st.session_state.mode = "board" 
+            st.rerun()
 
 # -----------------------------
 # 관리자 모드
