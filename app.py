@@ -4,7 +4,6 @@ from github import Github
 
 # --- 1. GitHub 연결 설정 ---
 try:
-    # Secrets에 저장된 정보를 가져옵니다.
     GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
     REPO_NAME = st.secrets["REPO_NAME"]
     g = Github(GITHUB_TOKEN)
@@ -20,22 +19,49 @@ def load_json(file_name):
         content = repo.get_contents(file_name)
         return json.loads(content.decoded_content.decode("utf-8")), content.sha
     except:
+        # 파일이 없을 경우 기본값 반환
+        if "categories" in file_name:
+            return ["기본분류", "업무", "개인"], None
         return [], None
 
 def save_json(file_name, data, sha):
     json_string = json.dumps(data, indent=4, ensure_ascii=False)
     repo.update_file(file_name, "Update Data", json_string, sha)
-    st.cache_data.clear() # 반영을 위해 캐시 삭제
+    st.cache_data.clear()
 
-# --- 3. 데이터 준비 ---
-st.set_page_config(page_title="Test Board", layout="wide")
-st.title("📝 테스트 게시판 (기본형)")
+# --- 3. 데이터 준비 및 초기화 ---
+st.set_page_config(page_title="Category Board", layout="wide")
 
+# JSON 데이터 로드
+categories, cat_sha = load_json("categories.json")
 all_data, data_sha = load_json("data.json")
 
-# --- 4. 글쓰기 기능 (에러 방지를 위해 간단한 구조) ---
-with st.expander("➕ 새 글 작성하기", expanded=False):
-    with st.form("simple_write_form"):
+# 현재 선택된 카테고리를 세션에 저장 (기본값은 첫 번째 카테고리)
+if "current_cat" not in st.session_state:
+    st.session_state.current_cat = categories[0]
+
+# --- 4. 좌측 사이드바 (분류 목록) ---
+with st.sidebar:
+    st.title("📁 분류 목록")
+    st.write("보기 원하는 분류를 선택하세요.")
+    
+    for idx, cat in enumerate(categories):
+        # 현재 선택된 카테고리는 강조 표시(primary)
+        is_active = (st.session_state.current_cat == cat)
+        if st.button(cat, key=f"side_cat_{idx}", use_container_width=True, 
+                     type="primary" if is_active else "secondary"):
+            st.session_state.current_cat = cat
+            st.rerun()
+
+# --- 5. 메인 화면 (선택된 카테고리 글만 표시) ---
+st.title(f"📍 {st.session_state.current_cat}")
+
+# 데이터 필터링: 현재 카테고리에 해당하는 글만 추출
+filtered_data = [i for i in all_data if i.get('category') == st.session_state.current_cat]
+
+# 글쓰기 기능 (필터링된 카테고리에 자동으로 저장되도록 설정)
+with st.expander(f"➕ {st.session_state.current_cat}에 새 글 쓰기", expanded=False):
+    with st.form("category_write_form"):
         title = st.text_input("제목")
         content = st.text_area("내용")
         submit = st.form_submit_button("저장하기")
@@ -47,32 +73,28 @@ with st.expander("➕ 새 글 작성하기", expanded=False):
                     "no": new_no, 
                     "title": title, 
                     "content": content,
-                    "category": "기본분류"
+                    "category": st.session_state.current_cat  # 현재 선택된 카테고리 저장
                 })
                 save_json("data.json", all_data, data_sha)
                 st.success("저장되었습니다!")
                 st.rerun()
-            else:
-                st.warning("제목과 내용을 모두 입력해주세요.")
 
 st.divider()
 
-# --- 5. 목록 출력 ---
-if not all_data:
-    st.info("작성된 글이 없습니다.")
+# 목록 출력
+if not filtered_data:
+    st.info(f"'{st.session_state.current_cat}' 분류에 작성된 글이 없습니다.")
 else:
-    for item in all_data:
-        # 각 행을 구분하는 유니크한 키 부여
+    for item in filtered_data:
         col1, col2, col3 = st.columns([1, 8, 1])
         col1.write(f"#{item['no']}")
         
-        # 상세 보기는 일단 제목 클릭 시 텍스트 노출로 대체 (에러 변수 제거)
         with col2:
-            if st.button(item['title'], key=f"btn_title_{item['no']}", use_container_width=True):
+            if st.button(item['title'], key=f"list_btn_{item['no']}", use_container_width=True):
                 st.info(item['content'])
         
-        # 삭제 버튼
-        if col3.button("🗑️", key=f"btn_del_{item['no']}"):
+        if col3.button("🗑️", key=f"list_del_{item['no']}"):
+            # 전체 데이터에서 해당 번호의 글 삭제
             all_data = [i for i in all_data if i['no'] != item['no']]
             save_json("data.json", all_data, data_sha)
             st.rerun()
