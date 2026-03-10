@@ -86,11 +86,16 @@
 
     // 1. 초기 JSON 데이터 로드
     fetch('data.json')
-        .then(res => res.json())
-        .then(data => {
-            currentData = data;
-            renderTable();
-        });
+    .then(res => res.json())
+    .then(data => {
+        currentData = data;
+        renderTable();
+    })
+    .catch(err => {
+        console.log("데이터를 불러올 수 없습니다. 직접 추가를 시작해 보세요.");
+        currentData = []; // 데이터가 없으면 빈 리스트로 시작
+        renderTable();
+    });
 
     // 2. 테이블 그리기
     function renderTable() {
