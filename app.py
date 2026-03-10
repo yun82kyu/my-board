@@ -19,9 +19,7 @@ def load_json(file_name):
         content = repo.get_contents(file_name)
         return json.loads(content.decoded_content.decode("utf-8")), content.sha
     except:
-        # 파일이 없을 경우 기본값 반환
-        if "categories" in file_name:
-            return ["기본분류", "업무", "개인"], None
+        if "categories" in file_name: return ["기본분류"], None
         return [], None
 
 def save_json(file_name, data, sha):
@@ -29,72 +27,82 @@ def save_json(file_name, data, sha):
     repo.update_file(file_name, "Update Data", json_string, sha)
     st.cache_data.clear()
 
-# --- 3. 데이터 준비 및 초기화 ---
-st.set_page_config(page_title="Category Board", layout="wide")
+# --- 3. 데이터 준비 및 세션 초기화 ---
+st.set_page_config(page_title="My Board", layout="wide")
 
-# JSON 데이터 로드
 categories, cat_sha = load_json("categories.json")
 all_data, data_sha = load_json("data.json")
 
-# 현재 선택된 카테고리를 세션에 저장 (기본값은 첫 번째 카테고리)
+# 화면 모드: 'list'(게시판) 또는 'manage'(분류 관리)
+if "view_mode" not in st.session_state:
+    st.session_state.view_mode = "list"
 if "current_cat" not in st.session_state:
     st.session_state.current_cat = categories[0]
 
-# --- 4. 좌측 사이드바 (분류 목록) ---
+# --- 4. 좌측 사이드바 ---
 with st.sidebar:
-    st.title("📁 분류 목록")
-    st.write("보기 원하는 분류를 선택하세요.")
+    st.title("🚀 Navigation")
     
-    for idx, cat in enumerate(categories):
-        # 현재 선택된 카테고리는 강조 표시(primary)
-        is_active = (st.session_state.current_cat == cat)
-        if st.button(cat, key=f"side_cat_{idx}", use_container_width=True, 
-                     type="primary" if is_active else "secondary"):
-            st.session_state.current_cat = cat
-            st.rerun()
-
-# --- 5. 메인 화면 (선택된 카테고리 글만 표시) ---
-st.title(f"📍 {st.session_state.current_cat}")
-
-# 데이터 필터링: 현재 카테고리에 해당하는 글만 추출
-filtered_data = [i for i in all_data if i.get('category') == st.session_state.current_cat]
-
-# 글쓰기 기능 (필터링된 카테고리에 자동으로 저장되도록 설정)
-with st.expander(f"➕ {st.session_state.current_cat}에 새 글 쓰기", expanded=False):
-    with st.form("category_write_form"):
-        title = st.text_input("제목")
-        content = st.text_area("내용")
-        submit = st.form_submit_button("저장하기")
+    # [모드 전환 버튼]
+    if st.button("📋 게시판 보기", key="nav_list_btn", use_container_width=True, 
+                 type="primary" if st.session_state.view_mode == "list" else "secondary"):
+        st.session_state.view_mode = "list"
+        st.rerun()
         
-        if submit:
-            if title and content:
-                new_no = max([int(i['no']) for i in all_data]) + 1 if all_data else 1
-                all_data.insert(0, {
-                    "no": new_no, 
-                    "title": title, 
-                    "content": content,
-                    "category": st.session_state.current_cat  # 현재 선택된 카테고리 저장
-                })
-                save_json("data.json", all_data, data_sha)
-                st.success("저장되었습니다!")
+    if st.button("⚙️ 대분류 관리", key="nav_manage_btn", use_container_width=True,
+                 type="primary" if st.session_state.view_mode == "manage" else "secondary"):
+        st.session_state.view_mode = "manage"
+        st.rerun()
+    
+    st.divider()
+    
+    # [게시판 모드일 때만 카테고리 목록 표시]
+    if st.session_state.view_mode == "list":
+        st.subheader("📁 카테고리")
+        for idx, cat in enumerate(categories):
+            is_active = (st.session_state.current_cat == cat)
+            if st.button(cat, key=f"side_cat_{idx}", use_container_width=True, 
+                         type="primary" if is_active else "secondary"):
+                st.session_state.current_cat = cat
                 st.rerun()
 
-st.divider()
+# --- 5. 메인 화면 분기 ---
 
-# 목록 출력
-if not filtered_data:
-    st.info(f"'{st.session_state.current_cat}' 분류에 작성된 글이 없습니다.")
-else:
-    for item in filtered_data:
-        col1, col2, col3 = st.columns([1, 8, 1])
-        col1.write(f"#{item['no']}")
+# [A] 대분류 관리 페이지
+if st.session_state.view_mode == "manage":
+    st.title("⚙️ 대분류 관리 센터")
+    
+    # 1. 새 분류 추가
+    with st.container(border=True):
+        st.subheader("➕ 새 분류 추가")
+        new_cat = st.text_input("추가할 분류 이름을 입력하세요", key="input_new_cat")
+        if st.button("추가하기", key="btn_add_cat", use_container_width=True):
+            if new_cat and new_cat not in categories:
+                categories.append(new_cat)
+                save_json("categories.json", categories, cat_sha)
+                st.success(f"'{new_cat}' 분류가 추가되었습니다!")
+                st.rerun()
+            elif new_cat in categories:
+                st.warning("이미 존재하는 분류입니다.")
+
+    st.write("")
+
+    # 2. 분류 삭제 (글이 0개인 것만 삭제 가능하게 하여 데이터 유실 방지)
+    with st.container(border=True):
+        st.subheader("🗑️ 분류 삭제")
+        st.caption("※ 게시글이 하나도 없는 분류만 삭제할 수 있습니다.")
         
-        with col2:
-            if st.button(item['title'], key=f"list_btn_{item['no']}", use_container_width=True):
-                st.info(item['content'])
+        # 삭제 가능한 분류 필터링
+        deletable = [c for c in categories if len([i for i in all_data if i.get('category') == c]) == 0]
         
-        if col3.button("🗑️", key=f"list_del_{item['no']}"):
-            # 전체 데이터에서 해당 번호의 글 삭제
-            all_data = [i for i in all_data if i['no'] != item['no']]
-            save_json("data.json", all_data, data_sha)
-            st.rerun()
+        if not deletable:
+            st.info("삭제 가능한 빈 분류가 없습니다.")
+        else:
+            del_target = st.selectbox("삭제할 분류 선택", deletable, key="select_del_cat")
+            confirm = st.checkbox("정말로 이 분류를 삭제하시겠습니까?", key="chk_del_confirm")
+            
+            if st.button("선택한 분류 삭제", key="btn_del_cat", type="danger", use_container_width=True):
+                if confirm and del_target:
+                    if len(categories) > 1:
+                        categories.remove(del_target)
+                        save_json("categories.json", categories
