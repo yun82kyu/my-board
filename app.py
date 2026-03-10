@@ -2,6 +2,7 @@ import streamlit as st
 import json
 from github import Github
 from datetime import datetime
+import time # 키 충돌 방지용
 
 st.set_page_config(page_title="My Board", layout="wide")
 
@@ -15,270 +16,185 @@ except Exception as e:
     st.error(f"GitHub 연결 실패: {e}")
     st.stop()
 
-
 # -----------------------------
-# JSON 로드
+# 데이터 로드 (캐시 적용으로 속도 향상)
 # -----------------------------
+@st.cache_data(show_spinner=False)
 def load_json(file):
-
     try:
         content = repo.get_contents(file)
-        data = json.loads(content.decoded_content.decode("utf-8"))
-        return data, content.sha
-
-    except Exception:
+        return json.loads(content.decoded_content.decode("utf-8")), content.sha
+    except:
         return [], None
 
-
 # -----------------------------
-# JSON 저장 (충돌 방지)
+# 데이터 저장
 # -----------------------------
-def save_json(file, data):
-
+def save_json(file, data, sha=None):
     json_string = json.dumps(data, indent=4, ensure_ascii=False)
-
     try:
+        if sha is None: # 파일이 없는 경우 새로 생성
+            try:
+                curr_content = repo.get_contents(file)
+                sha = curr_content.sha
+            except:
+                pass
+        
+        if sha:
+            repo.update_file(file, f"update {file}", json_string, sha)
+        else:
+            repo.create_file(file, f"create {file}", json_string)
+        
+        st.cache_data.clear() # 저장 후 캐시 초기화하여 최신 데이터 반영
+    except Exception as e:
+        st.error(f"저장 실패: {e}")
 
-        content = repo.get_contents(file)
-
-        repo.update_file(
-            file,
-            "update data",
-            json_string,
-            content.sha
-        )
-
-    except Exception:
-
-        repo.create_file(
-            file,
-            "create data",
-            json_string
-        )
-
-
-# -----------------------------
-# 데이터 불러오기
-# -----------------------------
+# 데이터 로드
 categories, cat_sha = load_json("categories.json")
-posts, post_sha = load_json("data.json")
+posts, data_sha = load_json("data.json")
 
-# 카테고리 없을 경우 생성
 if not categories:
     categories = ["기본분류"]
     save_json("categories.json", categories)
 
-
 # -----------------------------
-# 세션 상태
+# 세션 상태 및 고유 키 생성
 # -----------------------------
-if "mode" not in st.session_state:
-    st.session_state.mode = "board"
+if "mode" not in st.session_state: st.session_state.mode = "board"
+if "category" not in st.session_state: st.session_state.category = categories[0]
+if "view_post" not in st.session_state: st.session_state.view_post = None
 
-if "category" not in st.session_state:
-    st.session_state.category = categories[0]
-
-if "view_post" not in st.session_state:
-    st.session_state.view_post = None
-
+# 🌟 중요: 버튼 충돌 방지를 위한 유니크 런타임 ID
+t_key = str(int(time.time()))
 
 # -----------------------------
 # 사이드바
 # -----------------------------
 with st.sidebar:
-
-    st.title("📚 게시판")
-
-    if st.button("📋 게시판"):
+    st.title("📚 내 미니 보드")
+    
+    col1, col2 = st.columns(2)
+    if col1.button("📋 게시판", key="nav_board", use_container_width=True):
         st.session_state.mode = "board"
         st.session_state.view_post = None
         st.rerun()
-
-    if st.button("⚙️ 관리"):
-        pw = st.text_input("관리자 비밀번호", type="password")
-
-        if pw == st.secrets.get("ADMIN_PASSWORD", "1234"):
-            st.session_state.mode = "admin"
-            st.rerun()
+    if col2.button("⚙️ 관리", key="nav_admin", use_container_width=True):
+        st.session_state.mode = "admin"
+        st.rerun()
 
     st.divider()
 
     if st.session_state.mode == "board":
-
-        st.subheader("카테고리")
-
-        for c in categories:
-
-            if st.button(c, use_container_width=True):
-
+        st.subheader("📁 카테고리")
+        for idx, c in enumerate(categories):
+            is_active = (st.session_state.category == c)
+            # 카테고리 버튼 키에 인덱스를 붙여 중복 방지
+            if st.button(c, key=f"cat_btn_{idx}_{t_key}", use_container_width=True, 
+                         type="primary" if is_active else "secondary"):
                 st.session_state.category = c
                 st.session_state.view_post = None
                 st.rerun()
-
 
 # -----------------------------
 # 관리자 모드
 # -----------------------------
 if st.session_state.mode == "admin":
-
     st.title("⚙️ 카테고리 관리")
 
-    st.subheader("카테고리 추가")
-
-    new_cat = st.text_input("새 카테고리 이름")
-
-    if st.button("추가"):
-
-        if new_cat and new_cat not in categories:
-
-            categories.append(new_cat)
-
-            save_json(
-                "categories.json",
-                categories
-            )
-
-            st.success("카테고리 추가 완료")
-            st.rerun()
-
-        else:
-            st.warning("이미 존재하거나 이름이 비어 있습니다")
-
-    st.divider()
-
-    st.subheader("카테고리 삭제")
-
-    for c in categories:
-
-        if st.button(f"{c} 삭제"):
-
-            # 게시글 있는지 확인
-            count = len([p for p in posts if p.get("category") == c])
-
-            if count > 0:
-                st.error("게시글이 있는 카테고리는 삭제 불가")
-            else:
-
-                categories.remove(c)
-
-                save_json(
-                    "categories.json",
-                    categories
-                )
-
+    with st.container(border=True):
+        st.subheader("➕ 추가")
+        new_cat = st.text_input("새 카테고리 이름", key="admin_add_in")
+        if st.button("카테고리 추가 실행", key="admin_add_btn"):
+            if new_cat and new_cat not in categories:
+                categories.append(new_cat)
+                save_json("categories.json", categories, cat_sha)
                 st.rerun()
 
+    with st.container(border=True):
+        st.subheader("✏️ 수정")
+        edit_target = st.selectbox("수정할 대상", categories, key="admin_edit_sel")
+        new_name = st.text_input("변경할 이름", key="admin_edit_in")
+        if st.button("이름 변경 실행", key="admin_edit_btn"):
+            if new_name and new_name != edit_target:
+                idx = categories.index(edit_target)
+                categories[idx] = new_name
+                # 게시글 카테고리 일괄 변경
+                for p in posts:
+                    if p.get("category") == edit_target: p["category"] = new_name
+                save_json("categories.json", categories, cat_sha)
+                save_json("data.json", posts, data_sha)
+                st.rerun()
+
+    with st.container(border=True):
+        st.subheader("🗑️ 삭제")
+        del_target = st.selectbox("삭제할 대상", categories, key="admin_del_sel")
+        if st.button("카테고리 삭제 실행", key="admin_del_btn", type="danger"):
+            count = len([p for p in posts if p.get("category") == del_target])
+            if count > 0:
+                st.error(f"'{del_target}'에 {count}개의 글이 있어 삭제할 수 없습니다.")
+            elif len(categories) <= 1:
+                st.error("최소 한 개의 카테고리가 필요합니다.")
+            else:
+                categories.remove(del_target)
+                save_json("categories.json", categories, cat_sha)
+                st.rerun()
 
 # -----------------------------
-# 게시판
+# 게시판 모드
 # -----------------------------
 else:
-
     st.title(f"📂 {st.session_state.category}")
 
-    # -------------------------
     # 글쓰기
-    # -------------------------
-    with st.expander("✏️ 글쓰기"):
-
-        title = st.text_input("제목")
-        content = st.text_area("내용")
-
-        if st.button("등록"):
-
-            if title and content:
-
-                new_no = max([p["no"] for p in posts], default=0) + 1
-
-                posts.insert(0, {
-
-                    "no": new_no,
-                    "title": title,
-                    "content": content,
-                    "category": st.session_state.category,
-                    "views": 0,
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-
-                })
-
-                save_json(
-                    "data.json",
-                    posts
-                )
-
-                st.rerun()
-
-            else:
-                st.warning("제목과 내용을 입력하세요")
+    with st.expander("✏️ 글쓰기", expanded=False):
+        with st.form("write_form", clear_on_submit=True):
+            title = st.text_input("제목")
+            content = st.text_area("내용")
+            if st.form_submit_button("등록"):
+                if title and content:
+                    new_no = max([p.get("no",0) for p in posts], default=0) + 1
+                    posts.insert(0, {
+                        "no": new_no,
+                        "title": title,
+                        "content": content,
+                        "category": st.session_state.category,
+                        "views": 0,
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    })
+                    save_json("data.json", posts, data_sha)
+                    st.rerun()
 
     st.divider()
 
-    # -------------------------
-    # 게시글 필터
-    # -------------------------
-    filtered_posts = [
-        p for p in posts
-        if p.get("category") == st.session_state.category
-    ]
-
-    if not filtered_posts:
-        st.info("게시글이 없습니다")
-
-    # -------------------------
     # 게시글 리스트
-    # -------------------------
-    for p in filtered_posts:
+    filtered = [p for p in posts if p.get("category") == st.session_state.category]
 
-        col1, col2, col3 = st.columns([1,6,2])
+    if not filtered:
+        st.info("이 카테고리에 게시글이 없습니다.")
+    else:
+        for p in filtered:
+            col1, col2, col3 = st.columns([1, 7, 1.5])
+            col1.write(f"#{p['no']}")
+            # 상세 보기 버튼 (유니크 키 적용)
+            if col2.button(p["title"], key=f"view_{p['no']}_{t_key}", use_container_width=True):
+                st.session_state.view_post = p["no"]
+                p["views"] = p.get("views", 0) + 1
+                save_json("data.json", posts, data_sha)
+                st.rerun()
+            
+            if col3.button("🗑️ 삭제", key=f"del_{p['no']}_{t_key}", use_container_width=True):
+                posts = [x for x in posts if x["no"] != p["no"]]
+                save_json("data.json", posts, data_sha)
+                st.rerun()
 
-        col1.write(p["no"])
-
-        if col2.button(p["title"], key=f"title_{p['no']}"):
-
-            st.session_state.view_post = p["no"]
-
-            p["views"] += 1
-
-            save_json(
-                "data.json",
-                posts
-            )
-
-            st.rerun()
-
-        if col3.button("삭제", key=f"del_{p['no']}"):
-
-            posts = [
-
-                x for x in posts
-                if x["no"] != p["no"]
-            ]
-
-            save_json(
-                "data.json",
-                posts
-            )
-
-            st.rerun()
-
-    # -------------------------
-    # 게시글 보기
-    # -------------------------
+    # 게시글 본문 출력
     if st.session_state.view_post:
-
-        post = next(
-            (p for p in posts if p["no"] == st.session_state.view_post),
-            None
-        )
-
+        post = next((x for x in posts if x["no"] == st.session_state.view_post), None)
         if post:
-
-            st.divider()
-
+            st.markdown("---")
             st.subheader(post["title"])
-
-            st.write(post["content"])
-
-            st.caption(
-                f"조회수 {post['views']} | {post['date']}"
-            )
+            st.caption(f"📅 {post['date']} | 👀 조회수 {post.get('views',0)}")
+            st.info(post["content"])
+            if st.button("닫기", key="close_post"):
+                st.session_state.view_post = None
+                st.rerun()
