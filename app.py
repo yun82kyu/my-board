@@ -128,7 +128,7 @@ if st.session_state.mode == "admin":
     with st.container(border=True):
         st.subheader("🗑️ 삭제")
         del_target = st.selectbox("삭제할 대상", categories, key="admin_del_sel")
-        if st.button("카테고리 삭제 실행", key="admin_del_btn", type="danger"):
+        if st.button("카테고리 삭제 실행", key="admin_del_btn"):  # type="danger" 삭제
             count = len([p for p in posts if p.get("category") == del_target])
             if count > 0:
                 st.error(f"'{del_target}'에 {count}개의 글이 있어 삭제할 수 없습니다.")
