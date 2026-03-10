@@ -2,7 +2,7 @@ import streamlit as st
 import json
 from github import Github
 
-# --- 1. 설정 및 데이터 처리 ---
+# --- 1. 기본 연결 설정 ---
 try:
     GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
     REPO_NAME = st.secrets["REPO_NAME"]
@@ -13,7 +13,7 @@ except:
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
-@st.cache_data(show_spinner=False)
+# JSON 로드/저장 함수
 def load_json(file_name):
     content = repo.get_contents(file_name)
     return json.loads(content.decoded_content.decode("utf-8")), content.sha
@@ -22,101 +22,44 @@ def save_json(file_name, data, sha):
     repo.update_file(file_name, "Update", json.dumps(data, indent=4, ensure_ascii=False), sha)
     st.cache_data.clear()
 
-# --- 2. 환경 설정 ---
-st.set_page_config(page_title="Admin", layout="wide")
-params = st.query_params
-current_view = params.get("view", "list")
-selected_no = params.get("no", None)
+# --- 2. 페이지 설정 ---
+st.set_page_config(page_title="Admin Panel", layout="wide")
 
-# 카테고리 로드
+# 카테고리 불러오기
 categories, cat_sha = load_json("categories.json")
 
-# 현재 선택된 카테고리 관리 (세션)
-if "current_cat" not in st.session_state:
-    st.session_state.current_cat = categories[0]
+# --- 3. 좌측 사이드바 (리스트 형태) ---
+with st.sidebar:
+    # 대분류 글자와 추가 버튼을 한 줄에 배치
+    side_col1, side_col2 = st.columns([3, 1])
+    with side_col1:
+        st.subheader("📁 대분류")
+    with side_col2:
+        # 팝업(popover) 형태로 추가 버튼 배치
+        with st.popover("➕"):
+            new_cat = st.text_input("분류명")
+            if st.button("추가"):
+                if new_cat and new_cat not in categories:
+                    categories.append(new_cat)
+                    save_json("categories.json", categories, cat_sha)
+                    st.rerun()
 
-# --- 3. 상단 대분류 메뉴 (버튼 나열 방식) ---
-st.write("### 📁 대분류")
-cat_cols = st.columns(len(categories) + 1)
-for i, cat_name in enumerate(categories):
-    # 현재 선택된 카테고리는 강조 효과
-    btn_type = "primary" if st.session_state.current_cat == cat_name else "secondary"
-    if cat_cols[i].button(cat_name, key=f"cat_{i}", type=btn_type, use_container_width=True):
-        st.session_state.current_cat = cat_name
-        st.query_params.clear()
-        st.rerun()
+    st.divider()
 
-# 카테고리 추가 기능 (작게)
-with cat_cols[-1].popover("➕"):
-    new_cat = st.text_input("새 분류명")
-    if st.button("추가"):
-        categories.append(new_cat)
-        save_json("categories.json", categories, cat_sha)
-        st.rerun()
-
-st.divider()
-
-# --- 4. 상세 페이지 ---
-if current_view == "detail" and selected_no:
-    data, sha = load_json("data.json")
-    post = next((i for i in data if str(i['no']) == str(selected_no)), None)
-    if post:
-        st.button("⬅️ 목록", on_click=lambda: st.query_params.clear())
-        st.subheader(post['title'])
-        st.info(post['content'])
-    st.stop()
-
-# --- 5. 글쓰기 폼 (작게 숨김) ---
-if current_view == "write":
-    data, sha = load_json("data.json")
-    with st.form("write_form"):
-        st.caption(f"📍 {st.session_state.current_cat}에 글 쓰기")
-        t = st.text_input("제목")
-        c = st.text_area("내용")
-        if st.form_submit_button("저장"):
-            new_no = max([int(i['no']) for i in data]) + 1 if data else 1
-            data.insert(0, {"no": new_no, "title": t, "name": "관리자", "content": c, "viewcnt": 0, "category": st.session_state.current_cat})
-            save_json("data.json", data, sha)
-            st.query_params.clear()
+    # 콤보박스 대신 버튼 리스트로 카테고리 나열
+    selected_cat = st.session_state.get("current_cat", categories[0])
+    
+    for cat in categories:
+        # 선택된 카테고리는 강조(primary), 나머지는 기본(secondary)
+        btn_type = "primary" if selected_cat == cat else "secondary"
+        if st.button(cat, key=f"side_{cat}", use_container_width=True, type=btn_type):
+            st.session_state.current_cat = cat
+            st.query_params.clear() # 주소창 초기화 (목록으로 돌아가기 효과)
             st.rerun()
-    if st.button("취소"): st.query_params.clear(); st.rerun()
-    st.stop()
 
-# --- 6. 메인 목록 (한 줄 레이아웃) ---
-data, sha = load_json("data.json")
-# 선택된 카테고리 글만 필터링
-display_data = [i for i in data if i.get('category') == st.session_state.current_cat]
+# --- 4. 메인 화면 (현재 선택된 카테고리 표시) ---
+# 세션에 저장된 현재 카테고리 가져오기
+current_cat = st.session_state.get("current_cat", categories[0])
+st.title(f"👤 {current_cat}")
 
-# 검색과 버튼을 한 줄로
-search_col, btn_col = st.columns([5, 1])
-search_query = search_col.text_input("", placeholder="🔍 현재 분류 내 제목 검색 (결과는 하단 표에 자동 반영)", label_visibility="collapsed")
-if btn_col.button("📝 행 추가", use_container_width=True):
-    st.query_params.update(view="write")
-    st.rerun()
-
-st.write("") # 간격 조절
-
-# 테이블 헤더 (폭 조절)
-# [No(0.5), Title(6), Name(1.5), Del(1)] 비중으로 좁게 설정
-h1, h2, h3, h4 = st.columns([0.6, 6, 1.5, 0.8])
-h1.write("**No**")
-h2.write("**Title**")
-h3.write("**Name**")
-h4.write("**Del**")
-st.markdown("<hr style='margin:0; padding:0; border-top: 1px solid #ddd;'>", unsafe_allow_html=True)
-
-# 목록 출력
-for item in display_data:
-    if search_query and search_query.lower() not in item['title'].lower():
-        continue
-        
-    c1, c2, c3, c4 = st.columns([0.6, 6, 1.5, 0.8])
-    c1.write(item['no'])
-    if c2.button(item['title'], key=f"t_{item['no']}", use_container_width=True):
-        st.query_params.update(view="detail", no=item['no'])
-        st.rerun()
-    c3.write(item.get('name', '관리자'))
-    if c4.button("🗑️", key=f"d_{item['no']}"):
-        data = [i for i in data if i['no'] != item['no']]
-        save_json("data.json", data, sha)
-        st.rerun()
+st.write("선택하신 대분류의 목록이 여기에 표시됩니다. (다음 단계에서 목록/검색 구현)")
