@@ -13,6 +13,7 @@ except:
 g = Github(GITHUB_TOKEN)
 repo = g.get_repo(REPO_NAME)
 
+@st.cache_data(show_spinner=False)
 def load_data():
     file_content = repo.get_contents("data.json")
     return json.loads(file_content.decoded_content.decode("utf-8")), file_content.sha
@@ -20,70 +21,79 @@ def load_data():
 def save_data(data, sha):
     json_string = json.dumps(data, indent=4, ensure_ascii=False)
     repo.update_file("data.json", "Update data", json_string, sha)
+    st.cache_data.clear() # 데이터 갱신 시 캐시 삭제
 
-# --- 2. 레이아웃 설정 ---
+# --- 2. 레이아웃 및 주소창 제어 ---
 st.set_page_config(page_title="LLM Study Admin", layout="wide")
 
-# CSS로 이미지와 비슷한 느낌 주기 (폰트 및 간격)
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stButton>button { border-radius: 5px; }
-    </style>
-    """, unsafe_allow_html=True)
+# 주소창의 파라미터를 읽어서 현재 뷰(view) 결정
+# 크롬 뒤로가기를 누르면 이 파라미터가 변하면서 화면이 바뀝니다.
+params = st.query_params
+current_view = params.get("view", "list")
+selected_no = params.get("no", None)
 
-# 상단 메뉴 (이미지의 검은색 바 느낌)
+# --- 3. 사이드바 메뉴 ---
 st.sidebar.title("📁 대분류")
 category = st.sidebar.radio("메뉴 선택", ["LLM(Large Language Model)", "OOP", "WAS", "Framework", "Data Science"])
 
-# 세션 상태
-if "view" not in st.session_state:
-    st.session_state.view = "list"
+# --- 4. 상세 페이지 로직 ---
+if current_view == "detail" and selected_no:
+    data, sha = load_data()
+    # 해당 번호의 글 찾기
+    post = next((item for item in data if str(item['no']) == str(selected_no)), None)
+    
+    if post:
+        if st.button("⬅️ Back to List"):
+            st.query_params.clear() # 주소창 파라미터 삭제 (목록으로)
+            st.rerun()
+            
+        st.divider()
+        st.subheader(f"📌 {post['title']}")
+        st.info(post['content'])
+        st.caption(f"No: {post['no']} | 작성자: {post['name']} | 조회수: {post['viewcnt']}")
+    else:
+        st.error("글을 찾을 수 없습니다.")
+        if st.button("목록으로 돌아가기"):
+            st.query_params.clear()
+            st.rerun()
 
-# --- 3. 상세 페이지 ---
-if st.session_state.view == "detail":
-    post = st.session_state.selected_post
-    if st.button("⬅️ Back to List"):
-        st.session_state.view = "list"
+# --- 5. 글쓰기 페이지 로직 ---
+elif current_view == "write":
+    st.title("📝 새 게시글 행 추가")
+    data, sha = load_data()
+    
+    with st.form("new_row"):
+        c1, c2 = st.columns(2)
+        with c1: no = st.number_input("No", value=max([int(i['no']) for i in data])+1 if data else 1)
+        with c2: title = st.text_input("Title")
+        content = st.text_area("Content", height=300)
+        
+        if st.form_submit_button("저장하기"):
+            data.insert(0, {"no": no, "title": title, "name": "관리자", "viewcnt": 0, "content": content})
+            save_data(data, sha)
+            st.query_params.clear() # 저장 후 목록으로
+            st.rerun()
+            
+    if st.button("취소"):
+        st.query_params.clear()
         st.rerun()
-    st.divider()
-    st.subheader(f"📌 {post['title']}")
-    st.info(post['content'])
-    st.caption(f"No: {post['no']} | 작성자: {post['name']} | 조회수: {post['viewcnt']}")
 
-# --- 4. 메인 목록 페이지 ---
+# --- 6. 메인 목록 페이지 로직 ---
 else:
     st.title(f"👤 {category}")
-
     data, sha = load_data()
 
-    # 상단 검색 및 글쓰기 버튼 영역
     col_search, col_write = st.columns([3, 1])
     with col_search:
         search_query = st.text_input("🔍 Search", placeholder="검색어를 입력하세요...")
     with col_write:
         if st.button("📝 신규 행 추가", use_container_width=True):
-            st.session_state.view = "write"
-
-    # 글쓰기 모드 (행 추가)
-    if st.session_state.view == "write":
-        with st.form("new_row"):
-            c1, c2 = st.columns(2)
-            with c1: no = st.number_input("No", value=max([int(i['no']) for i in data])+1 if data else 1)
-            with c2: title = st.text_input("Title")
-            content = st.text_area("Content")
-            if st.form_submit_button("저장하기"):
-                data.insert(0, {"no": no, "title": title, "name": "관리자", "viewcnt": 0, "content": content})
-                save_data(data, sha)
-                st.session_state.view = "list"
-                st.rerun()
-        if st.button("취소"): 
-            st.session_state.view = "list"
+            st.query_params.update(view="write") # 주소창에 ?view=write 추가
             st.rerun()
 
     st.divider()
-
-    # 이미지와 유사한 테이블 헤더
+    
+    # 헤더
     h_col = st.columns([1, 6, 2, 1, 1])
     h_col[0].write("**No**")
     h_col[1].write("**Title**")
@@ -92,18 +102,16 @@ else:
     h_col[4].write("**Del**")
     st.divider()
 
-    # 데이터 리스트 (필터링 적용)
     for idx, item in enumerate(data):
-        if search_query and search_query not in item['title']:
+        if search_query and search_query.lower() not in item['title'].lower():
             continue
             
         cols = st.columns([1, 6, 2, 1, 1])
         cols[0].write(item['no'])
         
-        # 제목 클릭시 상세페이지 이동
+        # 제목 클릭 시 주소창 파라미터 변경
         if cols[1].button(item['title'], key=f"t_{idx}", use_container_width=True):
-            st.session_state.selected_post = item
-            st.session_state.view = "detail"
+            st.query_params.update(view="detail", no=item['no'])
             st.rerun()
             
         cols[2].write(item.get('name', '관리자'))
@@ -114,5 +122,4 @@ else:
             save_data(data, sha)
             st.rerun()
 
-    # 하단 페이지네이션 느낌 (흉내만 냄)
-    st.markdown("<center> 1 2 3 </center>", unsafe_allow_html=True)
+    st.markdown("<center style='color:gray;'>1 2 3</center>", unsafe_allow_html=True)
