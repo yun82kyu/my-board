@@ -194,7 +194,7 @@ else:
             st.rerun()
 
     # -------------------------
-    # 게시글 보기
+    # 게시글 보기 (수정된 부분)
     # -------------------------
     elif st.session_state.view_post:
         post = next((p for p in st.session_state.posts if p["no"] == st.session_state.view_post), None)
@@ -204,14 +204,19 @@ else:
             st.caption(f"📅 {post.get('date')} | 📂 {post.get('category')}")
             st.divider()
 
-            # 저장된 HTML 콘텐츠(이미지 포함)를 안전하게 렌더링
+            # 1. HTML 콘텐츠 가져오기
+            content_html = post.get("content", "")
+
+            # 2. 화면에 직접 렌더링 (변수에 담아 출력하지 않고 바로 호출)
+            # 이미지 크기가 본문을 벗어나지 않도록 style 태그를 포함합니다.
             components.html(f"""
                 <style>
-                    img {{ max-width: 100%; height: auto; }}
-                    body {{ font-family: sans-serif; line-height: 1.6; color: #333; }}
+                    img {{ max-width: 100%; height: auto; border-radius: 8px; margin: 10px 0; }}
+                    body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    pre {{ background: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }}
                 </style>
-                {post['content']}
-            """, height=800, scrolling=True)
+                <div>{content_html}</div>
+            """, height=600, scrolling=True)
 
             st.divider()
             if st.button("🔙 목록으로"):
