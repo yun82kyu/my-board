@@ -30,6 +30,7 @@ def load_json(file):
 def save_json(file, data, sha=None):
     json_string = json.dumps(data, indent=4, ensure_ascii=False)
     try:
+        # sha가 없으면 새로 가져옴 (삭제/수정 시 필수)
         if sha is None:
             try:
                 curr_content = repo.get_contents(file)
@@ -41,7 +42,7 @@ def save_json(file, data, sha=None):
         else:
             repo.create_file(file, f"create {file}", json_string)
         
-        st.cache_data.clear()
+        st.cache_data.clear() # 캐시 삭제하여 다음 로드 시 최신 데이터 반영
     except Exception as e:
         st.error(f"저장 실패: {e}")
 
@@ -62,10 +63,10 @@ if "view_post" not in st.session_state: st.session_state.view_post = None
 if "write_mode" not in st.session_state: st.session_state.write_mode = False
 if "edit_mode" not in st.session_state: st.session_state.edit_mode = False
 
-t_key = str(int(time.time()))
+t_key = str(int(time.time())) # 버튼 중복 방지용
 
 # -----------------------------
-# 사이드바 (기능 통합 유지)
+# 사이드바
 # -----------------------------
 with st.sidebar:
     st.title("📚 내 미니 보드")
@@ -97,7 +98,7 @@ with st.sidebar:
 # -----------------------------
 if st.session_state.mode == "admin":
     st.title("⚙️ 카테고리 관리")
-
+    # (카테고리 추가/수정/삭제 로직 - 기존과 동일)
     with st.container(border=True):
         st.subheader("➕ 추가")
         new_cat = st.text_input("새 카테고리 이름", key="admin_add_in")
@@ -136,10 +137,9 @@ if st.session_state.mode == "admin":
                 st.rerun()
 
 # -----------------------------
-# [B] 게시판 모드 (글쓰기/수정/목록)
+# [B] 게시판 모드
 # -----------------------------
 else:
-    # 1. 글쓰기 페이지
     if st.session_state.write_mode:
         st.title("📝 새 게시글 작성")
         with st.container(border=True):
@@ -161,7 +161,6 @@ else:
                 st.session_state.write_mode = False
                 st.rerun()
 
-    # 2. 수정 페이지
     elif st.session_state.edit_mode and st.session_state.view_post:
         post = next((x for x in posts if x["no"] == st.session_state.view_post), None)
         if post:
@@ -180,19 +179,15 @@ else:
                     st.session_state.edit_mode = False
                     st.rerun()
 
-    # 3. 목록 및 본문 보기
     else:
         st.title(f"📂 {st.session_state.category}")
-        
-        # 행 추가 버튼
-        if st.button("➕ 새 게시글 추가", key="main_add_btn"):
+        if st.button("➕ 새 게시글 추가"):
             st.session_state.write_mode = True
             st.session_state.view_post = None
             st.rerun()
 
         st.divider()
 
-        # 본문 보기
         if st.session_state.view_post:
             post = next((x for x in posts if x["no"] == st.session_state.view_post), None)
             if post:
@@ -200,21 +195,17 @@ else:
                     v1, v2 = st.columns([8, 2])
                     v1.subheader(post["title"])
                     if v2.button("✏️ 수정하기", use_container_width=True):
-                        st.session_state.edit_mode = True
-                        st.rerun()
+                        st.session_state.edit_mode = True; st.rerun()
                     st.caption(f"📅 {post['date']} | 👀 조회수 {post.get('views',0)}")
                     st.write(post["content"])
                     if st.button("✖️ 닫기"):
-                        st.session_state.view_post = None
-                        st.rerun()
+                        st.session_state.view_post = None; st.rerun()
                 st.divider()
 
-        # 목록 출력
         filtered = [p for p in posts if p.get("category") == st.session_state.category]
         if not filtered:
             st.info("게시글이 없습니다.")
         else:
-            # 헤더
             h1, h2, h3 = st.columns([1, 7, 1.5])
             h1.write("**번호**")
             h2.write("**제목**")
@@ -228,7 +219,11 @@ else:
                     p["views"] = p.get("views", 0) + 1
                     save_json("data.json", posts, data_sha)
                     st.rerun()
-                if col3.button("🗑️ 삭제", key=f"d_{p['no']}_{t_key}", use_container_width=True):
-                    posts = [x for x in posts if x["no"] != p["no"]]
-                    save_json("data.json", posts, data_sha)
+                
+                # 🌟 수정된 삭제 로직: 직접 posts 리스트에서 필터링 후 즉시 저장
+                if col3.button("🗑️ 삭제", key=f"del_btn_{p['no']}_{t_key}", use_container_width=True):
+                    # 전체 posts에서 현재 번호(p['no'])가 아닌 것들만 남김
+                    updated_posts = [item for item in posts if item["no"] != p["no"]]
+                    # 최신 sha값을 다시 확인하여 저장 시 충돌 방지
+                    save_json("data.json", updated_posts)
                     st.rerun()
