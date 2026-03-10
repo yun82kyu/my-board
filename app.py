@@ -35,7 +35,7 @@ all_data, data_sha = load_json("data.json")
 if "current_cat" not in st.session_state:
     st.session_state.current_cat = categories[0] if categories else "기본분류"
 
-# --- 2. 좌측 사이드바 (에러 수정된 삭제 로직) ---
+# --- 2. 좌측 사이드바 (에러 방지용 삭제 로직) ---
 with st.sidebar:
     col_h1, col_h2 = st.columns([3, 1])
     col_h1.subheader("📁 대분류")
@@ -60,24 +60,24 @@ with st.sidebar:
             st.query_params.clear()
             st.rerun()
             
-        # --- 조건부 삭제 (에러 방지용 체크박스 방식) ---
+        # --- 조건부 삭제 (에러 원천 차단: 버튼 대신 토글 사용) ---
         post_count = len([i for i in all_data if i.get('category') == cat])
         
         if post_count > 0:
             with side_c2.popover("🗑️"):
                 st.warning(f"내용 {post_count}개 존재")
-                # 버튼 대신 체크박스로 먼저 확인을 받으면 에러가 나지 않습니다.
-                confirm_check = st.checkbox("정말 삭제할까요?", key=f"check_{idx}")
-                if confirm_check:
-                    if st.button("네, 삭제합니다", key=f"pop_del_{idx}", type="danger", use_container_width=True):
-                        if len(categories) > 1:
-                            categories.remove(cat)
-                            save_json("categories.json", categories, cat_sha)
-                            if st.session_state.current_cat == cat:
-                                st.session_state.current_cat = categories[0]
-                            st.rerun()
+                st.write("실수 방지를 위해 아래 스위치를 켜면 즉시 삭제됩니다.")
+                # 버튼을 클릭하는 동작 대신, 토글(스위치) 상태가 변하면 즉시 실행
+                if st.toggle("정말 삭제할까요?", key=f"tog_del_{idx}"):
+                    if len(categories) > 1:
+                        categories.remove(cat)
+                        save_json("categories.json", categories, cat_sha)
+                        if st.session_state.current_cat == cat:
+                            st.session_state.current_cat = categories[0]
+                        st.success("삭제 중...")
+                        st.rerun()
         else:
-            # 내용이 없을 때는 즉시 삭제 (사이드바 버튼)
+            # 내용이 없을 때는 즉시 삭제 버튼 (이건 팝업 밖이라 에러 안 남)
             if side_c2.button("🗑️", key=f"direct_del_{idx}"):
                 if len(categories) > 1:
                     categories.remove(cat)
@@ -85,8 +85,6 @@ with st.sidebar:
                     if st.session_state.current_cat == cat:
                         st.session_state.current_cat = categories[0]
                     st.rerun()
-                else:
-                    st.error("최소 1개 필요")
 
 # --- 3. 메인 화면 로직 (목록/상세) ---
 params = st.query_params
