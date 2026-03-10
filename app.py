@@ -81,14 +81,19 @@ if st.session_state.write_mode:
     content_data = summernote_editor()
     
     # 실제 저장 버튼
+    # 기존 코드 95라인 부근 수정
     if st.button("🚀 최종 저장 및 업로드"):
         if title and content_data:
             new_no = max([p.get("no", 0) for p in st.session_state.posts], default=0) + 1
+            
+            # 핵심 수정: content_data를 str()로 감싸서 문자열로 확정합니다.
+            safe_content = str(content_data) 
+    
             new_post = {
                 "no": new_no,
                 "title": title,
                 "category": category,
-                "content": content_data, # HTML (이미지 포함)
+                "content": safe_content, # 이제 JSON 저장이 가능해집니다.
                 "date": datetime.now().strftime("%Y-%m-%d")
             }
             st.session_state.posts.insert(0, new_post)
