@@ -143,65 +143,61 @@ else:
     if st.session_state.write_mode:
 
         st.title("📝 새 게시글 작성")
-    
-        # 세션 상태에 임시 저장
-        if "draft_title" not in st.session_state:
-            st.session_state.draft_title = ""
-        if "draft_content" not in st.session_state:
-            st.session_state.draft_content = ""
-        if "draft_images" not in st.session_state:
-            st.session_state.draft_images = []
-    
+
+        # 세션에 임시 draft 저장
+        if "draft_title" not in st.session_state: st.session_state.draft_title = ""
+        if "draft_content" not in st.session_state: st.session_state.draft_content = ""
+        if "draft_images" not in st.session_state: st.session_state.draft_images = []
+        
         # 제목 입력
-        st.session_state.draft_title = st.text_input("제목", value=st.session_state.draft_title, key="write_title")
-    
+        st.session_state.draft_title = st.text_input(
+            "제목", value=st.session_state.draft_title, key="write_title"
+        )
+        
         # 본문 입력
         st.session_state.draft_content = st.text_area(
-            "내용",
+            "내용 ([img] 위치에 이미지 표시됨)", 
             value=st.session_state.draft_content,
             height=300,
             key="write_content"
         )
-    
+        
         # 이미지 업로드
         uploaded_imgs = st.file_uploader(
             "이미지 업로드 (여러개 가능)",
-            type=["png", "jpg", "jpeg"],
+            type=["png","jpg","jpeg"],
             accept_multiple_files=True,
-            key="write_images",
-            help="[img] 위치에 표시됩니다"
+            key="write_images"
         )
-    
-        # 업로드한 이미지를 세션에 저장 (미리보기에서 유지)
+        
+        # 업로드 이미지 세션 유지
         if uploaded_imgs:
             st.session_state.draft_images = uploaded_imgs
-    
-        # --------------------------
-        # 본문 미리보기
-        # --------------------------
+        
+        # -------------------
+        # 미리보기
+        # -------------------
         st.subheader("📌 미리보기")
         parts = st.session_state.draft_content.split("[img]")
+        
         for i, part in enumerate(parts):
             st.markdown(part)
             if i < len(st.session_state.draft_images):
                 st.image(st.session_state.draft_images[i], caption=f"이미지{i+1}")
-    
-        # --------------------------
+        
+        # -------------------
         # 저장 / 취소
-        # --------------------------
+        # -------------------
         col1, col2 = st.columns(2)
-    
         if col1.button("💾 저장하기", use_container_width=True, type="primary"):
-    
-            new_no = max([p.get("no", 0) for p in st.session_state.posts], default=0) + 1
-    
+        
+            new_no = max([p.get("no",0) for p in st.session_state.posts], default=0)+1
             img_urls = []
             for img in st.session_state.draft_images:
                 url = upload_image(img)
-                if url:
-                    img_urls.append(url)
-    
-            st.session_state.posts.insert(0, {
+                if url: img_urls.append(url)
+        
+            st.session_state.posts.insert(0,{
                 "no": new_no,
                 "title": st.session_state.draft_title,
                 "content": st.session_state.draft_content,
@@ -209,24 +205,24 @@ else:
                 "category": st.session_state.category,
                 "date": datetime.now().strftime("%Y-%m-%d")
             })
-    
+        
             save_json("data.json", st.session_state.posts)
-    
-            # 임시 draft 삭제
+        
+            # draft 초기화
             del st.session_state.draft_title
             del st.session_state.draft_content
             del st.session_state.draft_images
-    
+        
             st.success("✅ 등록 완료!")
             st.session_state.write_mode = False
             st.rerun()
-    
+        
         if col2.button("❌ 취소", use_container_width=True):
             st.session_state.write_mode = False
             if "draft_title" in st.session_state: del st.session_state.draft_title
             if "draft_content" in st.session_state: del st.session_state.draft_content
             if "draft_images" in st.session_state: del st.session_state.draft_images
-            st.rerun()
+            st.rerun()    
 
     # -------------------------
     # 게시글 보기
