@@ -153,7 +153,7 @@ if st.session_state.mode == "admin":
         if st.button(f"{c} 삭제"):
 
             # 게시글 있는지 확인
-            count = len([p for p in posts if p["category"] == c])
+            count = len([p for p in posts if p.get("category") == c])
 
             if count > 0:
                 st.error("게시글이 있는 카테고리는 삭제 불가")
@@ -217,9 +217,8 @@ else:
     # 게시글 필터
     # -------------------------
     filtered_posts = [
-
         p for p in posts
-        if p["category"] == st.session_state.category
+        if p.get("category") == st.session_state.category
     ]
 
     if not filtered_posts:
